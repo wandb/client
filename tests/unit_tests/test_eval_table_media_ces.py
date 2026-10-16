@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import ANY, MagicMock, call
+from unittest.mock import MagicMock, call
 
 import pytest
 import wandb
 from PIL import Image as PILImage
 from wandb.errors import UsageError
+from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.data_types.eval_table import _media_ces, _writer, _writer_ces
+from wandb.sdk.interface.interface import InterfaceBase
 
 pytestmark = pytest.mark.usefixtures("coreweave_evaluations_module")
 
@@ -71,34 +74,21 @@ def run_factory(mock_run, tmp_path):
 
 
 @pytest.fixture
-def mock_ces_client(monkeypatch, coreweave_evaluations_module):
-    client = MagicMock()
-    client.__enter__.return_value = client
-    client.eval_tables.create.return_value = SimpleNamespace(
-        dataset_id="dataset-1",
-        evaluation_id="evaluation-1",
+def deliver_log_eval_table(monkeypatch) -> MagicMock:
+    """Replace wandb-core's EvalTable upload with one that succeeds."""
+    deliver = MagicMock()
+    deliver.return_value.wait_or.return_value = pb.Result(
+        response=pb.Response(
+            log_eval_table_response=pb.LogEvalTableResponse(
+                evaluation_id="evaluation-1",
+                evaluation_version_id="evaluation-version-1",
+                dataset_id="dataset-1",
+                dataset_version_id="dataset-version-1",
+            )
+        )
     )
-    client.eval_tables.versions.create.return_value = SimpleNamespace(
-        dataset_version_id="dataset-version-1",
-        evaluation_version_id="evaluation-version-1",
-    )
-    monkeypatch.setenv("CES_BASE_URL", "https://evaluations.example.test")
-    monkeypatch.setattr(coreweave_evaluations_module, "Client", MagicMock)
-    monkeypatch.setattr(
-        _writer_ces.CESWriter,
-        "_resolve_scope_context",
-        lambda self, bound: _writer_ces._CESScopeContext(
-            scope_id="scope-ref",
-            api_key=None,
-            access_token="token",
-        ),
-    )
-    monkeypatch.setattr(
-        _writer_ces.CESWriter,
-        "_create_client",
-        lambda self, client_type, base_url, scope: client,
-    )
-    return client
+    monkeypatch.setattr(InterfaceBase, "deliver_log_eval_table", deliver)
+    return deliver
 
 
 def _png(tmp_path, name="image.png", color=(10, 20, 30)):
@@ -530,7 +520,7 @@ def test_external_reference_artifact_image_is_null_by_default(
         rows=_image_write_rows(image),
     )
 
-    assert prepared.row_batches[0][0]["input"]["image"] is None
+    assert json.loads(prepared.rows_json[0])["input"]["image"] is None
     assert prepared.dataset_fields == [
         {
             "source": "input",
@@ -573,7 +563,7 @@ def test_external_reference_audio_is_null_by_default(run_factory, monkeypatch):
         rows=_audio_write_rows(audio),
     )
 
-    assert prepared.row_batches[0][0]["input"]["audio"] is None
+    assert json.loads(prepared.rows_json[0])["input"]["audio"] is None
     assert prepared.dataset_fields == [
         {
             "source": "input",
@@ -705,7 +695,7 @@ def test_image_with_masks_and_boxes_uses_run_file_uris(run_factory, tmp_path):
 
 def test_image_overlay_keys_register_distinct_class_labels(
     run_factory,
-    mock_ces_client,
+    deliver_log_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -761,7 +751,7 @@ def test_image_overlay_keys_register_distinct_class_labels(
 
 def test_image_rows_merge_overlay_class_labels(
     run_factory,
-    mock_ces_client,
+    deliver_log_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -803,7 +793,7 @@ def test_image_rows_merge_overlay_class_labels(
 
 def test_image_overlay_class_labels_merge_with_resumed_string_ids(
     run_factory,
-    mock_ces_client,
+    deliver_log_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -839,7 +829,7 @@ def test_image_overlay_class_labels_merge_with_resumed_string_ids(
 
 def test_image_columns_register_distinct_overlay_class_labels(
     run_factory,
-    mock_ces_client,
+    deliver_log_eval_table,
     tmp_path,
     artifact_image_factory,
 ):
@@ -910,7 +900,7 @@ def test_external_reference_artifact_image_overlays_are_null_by_default(
         rows=_image_write_rows(image),
     )
 
-    assert prepared.row_batches[0][0]["input"]["image"] is None
+    assert json.loads(prepared.rows_json[0])["input"]["image"] is None
     assert prepared.dataset_fields[0]["extension_type"] == "wandb-image"
     warning.assert_called_once()
 
@@ -958,7 +948,7 @@ def test_cell_at_size_limit_becomes_null(run_factory, tmp_path, monkeypatch):
 
 def test_eval_table_writes_supported_media_extensions_to_ces(
     run_factory,
-    mock_ces_client,
+    deliver_log_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -974,11 +964,11 @@ def test_eval_table_writes_supported_media_extensions_to_ces(
 
     run.log({"eval": table})
 
-    mock_ces_client.eval_tables.columns.create.assert_called_once_with(
-        "evaluation-1",
-        namespace="wandb",
-        scope_id="scope-ref",
-        dataset_fields=[
+    [request] = [call.args[0] for call in deliver_log_eval_table.call_args_list]
+    assert [
+        {field.name: value for field, value in dataset_field.ListFields()}
+        for dataset_field in request.dataset_fields
+    ] == [
             {
                 "source": "input",
                 "name": "image",
@@ -1000,11 +990,9 @@ def test_eval_table_writes_supported_media_extensions_to_ces(
                 "extension_type": "wandb-video",
                 "extension_schema_version": 1,
             },
-        ],
-        scorers=[],
-        idempotency_key=ANY,
-    )
-    inputs = mock_ces_client.eval_tables.rows.add.call_args.kwargs["rows"][0]["input"]
+    ]
+    assert not request.scorers
+    inputs = json.loads(request.rows_json[0])["input"]
     assert inputs["image"]["extension_type"] == "wandb-image"
     assert inputs["image"]["format"] == "png"
     assert inputs["audio"]["extension_type"] == "wandb-audio"

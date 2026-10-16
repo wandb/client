@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import sys
-from dataclasses import replace
-from types import ModuleType, SimpleNamespace
-from unittest.mock import ANY, MagicMock
+from types import ModuleType
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import wandb
-from wandb.errors import UsageError
+from google.protobuf.message import Message
+from wandb.errors import CommError, UsageError
+from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.data_types._dtypes import AnyType
 from wandb.sdk.data_types.eval_table import _writer_ces as ces
+from wandb.sdk.interface.interface import InterfaceBase
 
 
 @pytest.fixture
@@ -27,12 +31,10 @@ def default_eval_table_server_feature_enabled(monkeypatch):
     )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def coreweave_evaluations_module(monkeypatch):
     client_module = ModuleType("coreweave_evaluations")
     client_module.__path__ = []
-    client_module.Client = MagicMock
-
     types_module = ModuleType("coreweave_evaluations.types")
     types_module.__path__ = []
     image_module = ModuleType("coreweave_evaluations.types.wandb_image_v1_param")
@@ -45,49 +47,50 @@ def coreweave_evaluations_module(monkeypatch):
         "coreweave_evaluations.types.wandb_image_v1_param",
         image_module,
     )
-    return client_module
+
+
+def _log_eval_table_result(
+    response: pb.LogEvalTableResponse,
+) -> pb.Result:
+    return pb.Result(response=pb.Response(log_eval_table_response=response))
+
+
+_UPLOADED = pb.LogEvalTableResponse(
+    evaluation_id="evaluation-1",
+    evaluation_version_id="evaluation-version-1",
+    dataset_id="dataset-1",
+    dataset_version_id="dataset-version-1",
+)
 
 
 @pytest.fixture
-def mock_ces_client(monkeypatch, coreweave_evaluations_module):
-    client = MagicMock()
-    client.eval_tables.create.return_value = SimpleNamespace(
-        dataset_id="dataset-1",
-        evaluation_id="evaluation-1",
-    )
-    client.eval_tables.versions.create.return_value = SimpleNamespace(
-        dataset_version_id="dataset-version-1",
-        evaluation_version_id="evaluation-version-1",
-    )
-    client.__enter__.return_value = client
+def deliver_log_eval_table(monkeypatch) -> MagicMock:
+    """Replace wandb-core's EvalTable upload with one that succeeds."""
+    deliver = MagicMock()
+    deliver.return_value.wait_or.return_value = _log_eval_table_result(_UPLOADED)
+    monkeypatch.setattr(InterfaceBase, "deliver_log_eval_table", deliver)
+    return deliver
 
-    def close_client(*_):
-        client.close()
-        return False
 
-    client.__exit__.side_effect = close_client
-    monkeypatch.setenv(
-        "CES_BASE_URL",
-        "https://evaluations.example.test",
-    )
-    monkeypatch.setattr(coreweave_evaluations_module, "Client", MagicMock)
-    monkeypatch.setattr(
-        "wandb.sdk.data_types.eval_table._writer_ces.CESWriter._resolve_scope_context",
-        lambda self, bound_run: ces._CESScopeContext(
-            scope_id="scope-id",
-            api_key=None,
-            access_token="token",
-        ),
-    )
-    monkeypatch.setattr(
-        "wandb.sdk.data_types.eval_table._writer_ces.CESWriter._create_client",
-        lambda self, *, client_type, base_url, scope: client,
-    )
-    return client
+def _sent(deliver: MagicMock) -> list[pb.LogEvalTableRequest]:
+    """Return the requests sent to wandb-core."""
+    return [call.args[0] for call in deliver.call_args_list]
+
+
+def _rows(request: pb.LogEvalTableRequest) -> list[dict[str, Any]]:
+    return [json.loads(row) for row in request.rows_json]
+
+
+def _as_dicts(messages: list[Message]) -> list[dict[str, Any]]:
+    """Convert messages to dicts of their set fields."""
+    return [
+        {field.name: value for field, value in message.ListFields()}
+        for message in messages
+    ]
 
 
 def test_ces_eval_table_writes_columns_rows_and_version(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
     monkeypatch,
 ):
@@ -110,63 +113,33 @@ def test_ces_eval_table_writes_columns_rows_and_version(
 
     run.log({"math_eval": et})
 
-    api = mock_ces_client.eval_tables
-    assert [call[0] for call in api.method_calls] == [
-        "create",
-        "columns.create",
-        "rows.add",
-        "versions.create",
+    [request] = _sent(deliver_log_eval_table)
+    assert request.name == "math_eval"
+    assert request.history_key == "math_eval"
+    assert request.step == "0"
+    assert _as_dicts(request.dataset_fields) == [
+        {"source": "input", "name": "prompt", "value_type": "string"},
+        {"source": "input", "name": "truth", "value_type": "string"},
+        {"source": "output", "name": "answer", "value_type": "string"},
+        {"source": "output", "name": "confidence", "value_type": "number"},
     ]
-    api.create.assert_called_once_with(
-        namespace="wandb",
-        scope_id="scope-id",
-        name="math_eval",
-        idempotency_key=ANY,
-    )
-    api.columns.create.assert_called_once_with(
-        "evaluation-1",
-        namespace="wandb",
-        scope_id="scope-id",
-        dataset_fields=[
-            {"source": "input", "name": "prompt", "value_type": "string"},
-            {"source": "input", "name": "truth", "value_type": "string"},
-            {"source": "output", "name": "answer", "value_type": "string"},
-            {"source": "output", "name": "confidence", "value_type": "number"},
-        ],
-        scorers=[
-            {"name": "correct", "value_type": "boolean"},
-        ],
-        idempotency_key=ANY,
-    )
-    api.rows.add.assert_called_once_with(
-        "evaluation-1",
-        namespace="wandb",
-        scope_id="scope-id",
-        rows=[
-            {
-                "input": {"prompt": "2+2", "truth": "4"},
-                "output": {"answer": "4", "confidence": 1},
-                "scores": {"correct": True},
-            },
-            {
-                "input": {"prompt": "2+3", "truth": "5"},
-                "output": {"answer": "4", "confidence": 0.25},
-                "scores": {"correct": False},
-            },
-        ],
-        idempotency_key=ANY,
-    )
-    api.versions.create.assert_called_once_with(
-        "evaluation-1",
-        namespace="wandb",
-        scope_id="scope-id",
-        idempotency_key=ANY,
-    )
-    mock_ces_client.close.assert_called_once_with()
+    assert _as_dicts(request.scorers) == [
+        {"name": "correct", "value_type": "boolean"},
+    ]
+    assert _rows(request) == [
+        {
+            "input": {"prompt": "2+2", "truth": "4"},
+            "output": {"answer": "4", "confidence": 1},
+            "scores": {"correct": True},
+        },
+        {
+            "input": {"prompt": "2+3", "truth": "5"},
+            "output": {"answer": "4", "confidence": 0.25},
+            "scores": {"correct": False},
+        },
+    ]
     debug.assert_called_once_with(
-        "CES EvalTable recorded namespace=%s scope_id=%s evaluation_version_id=%s",
-        "wandb",
-        "scope-id",
+        "CES EvalTable recorded evaluation_version_id=%s",
         "evaluation-version-1",
     )
 
@@ -188,7 +161,7 @@ def test_ces_eval_table_writes_columns_rows_and_version(
 
 
 def test_ces_eval_table_stubs_media_until_native_support_exists(
-    mock_ces_client,
+    deliver_log_eval_table,
     mock_wandb_log,
     run,
 ):
@@ -201,13 +174,14 @@ def test_ces_eval_table_stubs_media_until_native_support_exists(
 
     run.log({"media_eval": table})
 
-    rows = mock_ces_client.eval_tables.rows.add.call_args.kwargs["rows"]
+    [request] = _sent(deliver_log_eval_table)
+    rows = _rows(request)
     assert rows[0]["output"]["histogram"] == "[wandb.Histogram not yet supported]"
     mock_wandb_log.assert_warned("wandb.Histogram values are not yet supported")
 
 
 def test_ces_eval_table_writes_supported_media(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     from PIL import Image as PILImage
@@ -221,7 +195,8 @@ def test_ces_eval_table_writes_supported_media(
 
     run.log({"media_eval": et})
 
-    rows = mock_ces_client.eval_tables.rows.add.call_args.kwargs["rows"]
+    [request] = _sent(deliver_log_eval_table)
+    rows = _rows(request)
     image_value = rows[0]["output"]["image"]
     assert image_value["extension_type"] == "wandb-image"
     assert image_value["uri"].startswith("wandb-run-file://")
@@ -250,7 +225,7 @@ def test_ces_eval_table_media_telemetry_counts_affected_writes(
     prepared = ces._CESWritePayloads(
         dataset_fields=[],
         scorers=[],
-        row_batches=[],
+        rows_json=[],
         media_cells_examined=1,
         oversized_media_cells=oversized_media_cells,
         oversized_locations=(),
@@ -264,7 +239,7 @@ def test_ces_eval_table_media_telemetry_counts_affected_writes(
     recorder.log.assert_not_called()
 
 
-def test_ces_eval_table_writes_supported_media_in_raise_mode(mock_ces_client, run):
+def test_ces_eval_table_writes_supported_media_in_raise_mode(deliver_log_eval_table, run):
     from PIL import Image as PILImage
 
     image = wandb.Image(PILImage.new("RGB", (2, 2), color="red"))
@@ -277,7 +252,8 @@ def test_ces_eval_table_writes_supported_media_in_raise_mode(mock_ces_client, ru
     )
     run.log({"media_eval": table})
 
-    rows = mock_ces_client.eval_tables.rows.add.call_args.kwargs["rows"]
+    [request] = _sent(deliver_log_eval_table)
+    rows = _rows(request)
     assert rows[0]["output"]["image"]["extension_type"] == "wandb-image"
 
 
@@ -292,92 +268,8 @@ def test_ces_writer_validates_cells_during_construction():
         )
 
 
-def test_ces_eval_table_batches_rows_by_encoded_bytes(
-    mock_ces_client,
-    run,
-    monkeypatch,
-):
-    row = {
-        "input": {"prompt": "é" * 40},
-        "output": {"answer": "yes"},
-        "scores": {},
-    }
-    single_row_body_size = len(ces._encode_json({"rows": [row]}))
-    monkeypatch.setattr(
-        ces,
-        "_TARGET_ROW_BATCH_BODY_BYTES",
-        single_row_body_size - 1,
-    )
-    et = wandb.EvalTable(
-        columns=["prompt", "answer"],
-        data=[["é" * 40, "yes"], ["é" * 40, "yes"]],
-        input_columns=["prompt"],
-        output_columns=["answer"],
-        backend="ces",
-    )
-
-    run.log({"eval": et})
-
-    calls = mock_ces_client.eval_tables.rows.add.call_args_list
-    assert [call.kwargs["rows"] for call in calls] == [[row], [row]]
-    keys = [call.kwargs["idempotency_key"] for call in calls]
-    assert len(set(keys)) == 2
-    assert keys[0].endswith("-rows-0")
-    assert keys[1].endswith("-rows-1")
-
-
-@pytest.mark.parametrize(
-    ("separator_bytes", "expected_batch_sizes"),
-    [(1, [2, 1]), (0, [1, 1, 1])],
-)
-def test_ces_eval_table_batch_size_counts_row_separators(
-    separator_bytes,
-    expected_batch_sizes,
-):
-    row = {"input": {"value": "same"}, "output": None, "scores": {}}
-    row_size = len(ces._encode_json(row))
-    target_size = ces._ROW_BATCH_ENVELOPE_BYTES + 2 * row_size + separator_bytes
-    batches = list(
-        ces._iter_row_batches(
-            [row, row, row],
-            max_request_body_bytes=16 << 20,
-            target_batch_body_bytes=target_size,
-            max_rows_per_batch=10_000,
-        )
-    )
-
-    assert [len(batch) for batch in batches] == expected_batch_sizes
-
-
-def test_ces_eval_table_batches_rows_by_count(
-    mock_ces_client,
-    run,
-    monkeypatch,
-):
-    monkeypatch.setattr(ces, "_MAX_ROWS_PER_BATCH", 2)
-    et = wandb.EvalTable(
-        columns=["value"],
-        data=[[index] for index in range(5)],
-        output_columns=["value"],
-        backend="ces",
-    )
-
-    run.log({"eval": et})
-
-    calls = mock_ces_client.eval_tables.rows.add.call_args_list
-    assert [len(call.kwargs["rows"]) for call in calls] == [2, 2, 1]
-    assert [call[0] for call in mock_ces_client.eval_tables.method_calls] == [
-        "create",
-        "columns.create",
-        "rows.add",
-        "rows.add",
-        "rows.add",
-        "versions.create",
-    ]
-
-
 def test_ces_eval_table_rejects_oversized_row_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
     monkeypatch,
 ):
@@ -399,11 +291,11 @@ def test_ces_eval_table_rejects_oversized_row_before_network(
     with pytest.raises(UsageError, match="row at index 0"):
         run.log({"eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_rejects_total_row_count_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
     monkeypatch,
 ):
@@ -418,35 +310,28 @@ def test_ces_eval_table_rejects_total_row_count_before_network(
     with pytest.raises(UsageError, match="at most 2 rows per table"):
         run.log({"eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_does_not_cut_version_after_batch_failure(
-    mock_ces_client,
-    run,
-    monkeypatch,
-):
-    monkeypatch.setattr(ces, "_MAX_ROWS_PER_BATCH", 1)
-    mock_ces_client.eval_tables.rows.add.side_effect = [
-        None,
-        RuntimeError("batch failed"),
-    ]
+def test_ces_eval_table_raises_upload_error(deliver_log_eval_table, run):
+    deliver_log_eval_table.return_value.wait_or.return_value = _log_eval_table_result(
+        pb.LogEvalTableResponse(error_message="upload failed")
+    )
     et = wandb.EvalTable(
         columns=["value"],
-        data=[[1], [2]],
+        data=[[1]],
         output_columns=["value"],
         backend="ces",
     )
 
-    with pytest.raises(RuntimeError, match="batch failed"):
+    with pytest.raises(CommError, match="upload failed"):
         run.log({"eval": et})
 
-    mock_ces_client.eval_tables.versions.create.assert_not_called()
-    mock_ces_client.close.assert_called_once_with()
+    assert et._immutable_write_result is None
 
 
 def test_ces_eval_table_infers_python_and_numpy_integers(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     np = pytest.importorskip("numpy")
@@ -459,10 +344,8 @@ def test_ces_eval_table_infers_python_and_numpy_integers(
 
     run.log({"typed_eval": et})
 
-    fields = mock_ces_client.eval_tables.columns.create.call_args.kwargs[
-        "dataset_fields"
-    ]
-    assert fields == [
+    [request] = _sent(deliver_log_eval_table)
+    assert _as_dicts(request.dataset_fields) == [
         {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "python_int", "value_type": "integer"},
         {"source": "output", "name": "numpy_int", "value_type": "integer"},
@@ -471,7 +354,7 @@ def test_ces_eval_table_infers_python_and_numpy_integers(
 
 
 def test_ces_eval_table_classifies_integer_valued_floats_as_numbers(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     et = wandb.EvalTable(
@@ -483,15 +366,14 @@ def test_ces_eval_table_classifies_integer_valued_floats_as_numbers(
 
     run.log({"typed_eval": et})
 
-    assert mock_ces_client.eval_tables.columns.create.call_args.kwargs[
-        "dataset_fields"
-    ] == [
+    [request] = _sent(deliver_log_eval_table)
+    assert _as_dicts(request.dataset_fields) == [
         {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "value", "value_type": "number"},
     ]
 
 
-def test_ces_eval_table_serializes_nan_as_typed_null(mock_ces_client, run):
+def test_ces_eval_table_serializes_nan_as_typed_null(deliver_log_eval_table, run):
     et = wandb.EvalTable(
         columns=["value"],
         data=[[float("nan")]],
@@ -501,15 +383,12 @@ def test_ces_eval_table_serializes_nan_as_typed_null(mock_ces_client, run):
 
     run.log({"nan_eval": et})
 
-    assert mock_ces_client.eval_tables.columns.create.call_args.kwargs[
-        "dataset_fields"
-    ] == [
+    [request] = _sent(deliver_log_eval_table)
+    assert _as_dicts(request.dataset_fields) == [
         {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "value", "value_type": "number"},
     ]
-    assert mock_ces_client.eval_tables.rows.add.call_args.kwargs["rows"][0][
-        "output"
-    ] == {"value": None}
+    assert _rows(request)[0]["output"] == {"value": None}
 
 
 @pytest.mark.parametrize(
@@ -521,7 +400,7 @@ def test_ces_eval_table_serializes_nan_as_typed_null(mock_ces_client, run):
     ],
 )
 def test_ces_eval_table_rejects_invalid_columns_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
     data,
     message,
@@ -534,12 +413,10 @@ def test_ces_eval_table_rejects_invalid_columns_before_network(
     with pytest.raises(UsageError, match=message):
         run.log({"invalid_eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_rejects_mixed_column_types_before_network(
-    mock_ces_client,
-):
+def test_ces_eval_table_rejects_mixed_column_types_on_construction():
     with pytest.raises(TypeError, match="incompatible types"):
         wandb.EvalTable(
             columns=["value"],
@@ -547,11 +424,9 @@ def test_ces_eval_table_rejects_mixed_column_types_before_network(
             backend="ces",
         )
 
-    mock_ces_client.eval_tables.create.assert_not_called()
-
 
 def test_ces_eval_table_rejects_mixed_types_with_permissive_dtype_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     et = wandb.EvalTable(
@@ -564,7 +439,7 @@ def test_ces_eval_table_rejects_mixed_types_with_permissive_dtype_before_network
     with pytest.raises(UsageError, match="mixes 'boolean' and 'integer'"):
         run.log({"mixed_eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_reports_extension_types_in_mixed_column_error():
@@ -593,7 +468,7 @@ def test_ces_eval_table_reports_extension_types_in_mixed_column_error():
     ],
 )
 def test_ces_eval_table_rejects_invalid_column_name_lengths_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
     columns,
     input_columns,
@@ -613,12 +488,12 @@ def test_ces_eval_table_rejects_invalid_column_name_lengths_before_network(
     with pytest.raises(UsageError, match=message):
         run.log({"invalid_eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_describes_field_limit_as_input_and_output_columns(
     monkeypatch,
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     monkeypatch.setattr(ces, "_MAX_DATASET_FIELDS", 1)
@@ -636,11 +511,11 @@ def test_ces_eval_table_describes_field_limit_as_input_and_output_columns(
     ):
         run.log({"invalid_eval": et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_rejects_invalid_table_name_length_before_network(
-    mock_ces_client,
+    deliver_log_eval_table,
     run,
 ):
     et = wandb.EvalTable(columns=["value"], data=[[1]], backend="ces")
@@ -648,10 +523,10 @@ def test_ces_eval_table_rejects_invalid_table_name_length_before_network(
     with pytest.raises(UsageError, match="EvalTable names"):
         run.log({"x" * 257: et})
 
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
-def test_ces_error_uses_original_integer_column(mock_ces_client, run):
+def test_ces_error_uses_original_integer_column(deliver_log_eval_table, run):
     et = wandb.EvalTable(
         columns=[3],
         data=[[float("inf")]],
@@ -662,121 +537,13 @@ def test_ces_error_uses_original_integer_column(mock_ces_client, run):
         run.log({"invalid_eval": et})
 
     assert "column '3'" not in str(exc_info.value)
-    mock_ces_client.eval_tables.create.assert_not_called()
+    deliver_log_eval_table.assert_not_called()
 
 
-def test_ces_base_url(monkeypatch):
-    monkeypatch.delenv("CES_BASE_URL", raising=False)
-    assert ces._ces_base_url("https://api.wandb.ai") == "https://evaluations.wandb.ai"
-    assert (
-        ces._ces_base_url("https://forge.coreweave.com/api/wandb")
-        == "https://evaluations.wandb.ai"
-    )
-    assert (
-        ces._ces_base_url("https://example.test") == "https://example.test/evaluations"
-    )
-
-    monkeypatch.setenv("CES_BASE_URL", "https://ces.test")
-    assert ces._ces_base_url("https://api.wandb.ai") == "https://ces.test"
-
-
-def test_ces_eval_table_resolves_project_scope_with_api_key(run):
-    writer = ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
-    service_api = SimpleNamespace(
-        api_key="secret",
-        access_token=MagicMock(),
-        execute_graphql=MagicMock(
-            return_value={"project": {"internalId": "opaque-project-id"}}
-        ),
-    )
-    writer._bound = replace(writer._require_bound(), service_api=service_api)
-
-    scope = writer._resolve_scope_context(writer._require_bound())
-
-    assert scope.scope_id == "opaque-project-id"
-    assert scope.api_key == "secret"
-    assert scope.access_token is None
-    service_api.execute_graphql.assert_called_once_with(
-        ces._PROJECT_SCOPE_QUERY,
-        variables={"entity": "e", "project": "p"},
-    )
-    service_api.access_token.assert_not_called()
-
-
-def test_ces_scope_context_repr_redacts_credentials():
-    scope = ces._CESScopeContext(
-        scope_id="scope-id",
-        api_key="api-secret",
-        access_token="token-secret",
-    )
-
-    assert repr(scope) == "_CESScopeContext(scope_id='scope-id')"
-
-
-def test_ces_eval_table_uses_federated_access_token(run):
-    writer = ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
-    writer._bound = replace(
-        writer._require_bound(),
-        service_api=SimpleNamespace(
-            api_key=None,
-            access_token=MagicMock(return_value="access-token"),
-            execute_graphql=MagicMock(
-                return_value={"project": {"internalId": "opaque-project-id"}}
-            ),
-        ),
-    )
-
-    scope = writer._resolve_scope_context(writer._require_bound())
-
-    assert scope.api_key is None
-    assert scope.access_token == "access-token"
-
-
-@pytest.mark.parametrize(
-    ("api_key", "access_token"),
-    [("run-api-key", None), (None, "run-access-token")],
-)
-def test_ces_client_uses_only_the_run_credentials(api_key, access_token):
-    class EnvironmentDefaultingClient:
-        def __init__(self, *, base_url, api_key, bearer_token):
-            self.base_url = base_url
-            self.api_key = api_key if api_key is not None else "environment-api-key"
-            self.bearer_token = (
-                bearer_token if bearer_token is not None else "environment-access-token"
-            )
-
-    writer = ces.CESWriter()
-    scope = ces._CESScopeContext(
-        scope_id="scope-id",
-        api_key=api_key,
-        access_token=access_token,
-    )
-
-    client = writer._create_client(
-        client_type=EnvironmentDefaultingClient,
-        base_url="https://evaluations.example.test",
-        scope=scope,
-    )
-
-    assert client.api_key == api_key
-    assert client.bearer_token == access_token
-
-
-def test_ces_eval_table_retries_with_stable_idempotency_keys(
-    mock_ces_client,
-    run,
-    monkeypatch,
-):
-    monkeypatch.setattr(ces, "_MAX_ROWS_PER_BATCH", 1)
-    version = SimpleNamespace(
-        dataset_version_id="dataset-version-1",
-        evaluation_version_id="evaluation-version-1",
-    )
-    mock_ces_client.eval_tables.versions.create.side_effect = [
-        RuntimeError("temporary failure"),
-        version,
+def test_ces_eval_table_retry_resends_log_location(deliver_log_eval_table, run):
+    deliver_log_eval_table.return_value.wait_or.side_effect = [
+        _log_eval_table_result(pb.LogEvalTableResponse(error_message="failed")),
+        _log_eval_table_result(_UPLOADED),
     ]
     et = wandb.EvalTable(
         columns=["value"],
@@ -784,61 +551,17 @@ def test_ces_eval_table_retries_with_stable_idempotency_keys(
         output_columns=["value"],
         backend="ces",
     )
-    et.bind_to_run(run, "eval", 0)
+    et.bind_to_run(run, "eval", 7)
 
-    with pytest.raises(RuntimeError, match="temporary failure"):
+    with pytest.raises(CommError, match="failed"):
         et.to_json(run)
     et.to_json(run)
 
-    methods = (
-        mock_ces_client.eval_tables.create,
-        mock_ces_client.eval_tables.columns.create,
-        mock_ces_client.eval_tables.versions.create,
-    )
-    for method in methods:
-        calls = method.call_args_list
-        assert len(calls) == 2
-        assert calls[0].kwargs["idempotency_key"] == calls[1].kwargs["idempotency_key"]
-
-    row_calls = mock_ces_client.eval_tables.rows.add.call_args_list
-    assert len(row_calls) == 4
-    first_attempt_keys = [call.kwargs["idempotency_key"] for call in row_calls[:2]]
-    retry_keys = [call.kwargs["idempotency_key"] for call in row_calls[2:]]
-    assert first_attempt_keys == retry_keys
-    assert len(set(first_attempt_keys)) == 2
-
-
-def test_ces_eval_table_run_location_stabilizes_idempotency_keys(
-    mock_ces_client,
-    run,
-):
-    first = wandb.EvalTable(
-        columns=["value"],
-        data=[[1]],
-        backend="ces",
-    )
-    second = wandb.EvalTable(
-        columns=["value"],
-        data=[[2]],
-        backend="ces",
-    )
-    first.bind_to_run(run, "eval", 7)
-    second.bind_to_run(run, "eval", 7)
-
-    first.to_json(run)
-    second.to_json(run)
-
-    methods = (
-        mock_ces_client.eval_tables.create,
-        mock_ces_client.eval_tables.columns.create,
-        mock_ces_client.eval_tables.rows.add,
-        mock_ces_client.eval_tables.versions.create,
-    )
-    for method in methods:
-        calls = method.call_args_list
-        assert len(calls) == 2
-        # Content is not part of request identity; CES detects body mismatches.
-        assert calls[0].kwargs["idempotency_key"] == calls[1].kwargs["idempotency_key"]
+    # wandb-core derives idempotency keys from the log location, so a retry
+    # reuses the CES resources created by the failed attempt.
+    first, retry = _sent(deliver_log_eval_table)
+    assert first == retry
+    assert (first.history_key, first.step) == ("eval", "7")
 
 
 def test_ces_eval_table_rejects_mixed_type_mode():

@@ -687,6 +687,19 @@ class InterfaceBase(abc.ABC):
     ) -> MailboxHandle[pb.Result]:
         raise NotImplementedError
 
+    def deliver_log_eval_table(
+        self,
+        log_eval_table: pb.LogEvalTableRequest,
+    ) -> MailboxHandle[pb.Result]:
+        return self._deliver_log_eval_table(log_eval_table)
+
+    @abc.abstractmethod
+    def _deliver_log_eval_table(
+        self,
+        log_eval_table: pb.LogEvalTableRequest,
+    ) -> MailboxHandle[pb.Result]:
+        raise NotImplementedError
+
     def deliver_download_artifact(
         self,
         artifact_id: str,

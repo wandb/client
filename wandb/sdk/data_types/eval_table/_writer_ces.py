@@ -1,62 +1,35 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import math
-import os
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
+
+from typing_extensions import NotRequired, TypedDict
 
 import wandb
 from wandb.analytics import get_telemetry_recorder
 from wandb.analytics.opentelemetry.opentelemetry_proxy import LowCardinalityAttributes
 from wandb.errors import UsageError
+from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.data_types.base_types.media import Media
 from wandb.sdk.data_types.base_types.wb_value import WBValue
 from wandb.sdk.data_types.eval_table import _media_ces
 from wandb.sdk.data_types.eval_table._media_ces import _encode_json
 from wandb.sdk.data_types.eval_table._writer import WriteResult, WriteRow
 from wandb.sdk.data_types.table import Table
-from wandb.sdk.lib import urls
 
 if TYPE_CHECKING:
-    from coreweave_evaluations import Client as EvaluationsClientT
-    from coreweave_evaluations.types.eval_tables.column_create_params import (
-        DatasetField as _CESDatasetField,
-    )
-    from coreweave_evaluations.types.eval_tables.column_create_params import (
-        Scorer as _CESScorer,
-    )
-    from coreweave_evaluations.types.eval_tables.row_add_params import Row as _CESRow
-
-    from wandb.apis.public.service_api import ServiceApi
     from wandb.sdk.data_types.table import ColumnKey, LogMode
     from wandb.sdk.wandb_run import Run as LocalRun
 
 
 _logger = logging.getLogger(__name__)
 
-_CES_BASE_URL_ENV = "CES_BASE_URL"
-_MTSAAS_WANDB_BASE_URL = "https://api.wandb.ai"
-_MTSAAS_CES_BASE_URL = "https://evaluations.wandb.ai"
-_WANDB_SCOPE_NAMESPACE = "wandb"
-_PROJECT_SCOPE_QUERY = """
-query EvalTableProjectScope($entity: String!, $project: String!) {
-  project(entityName: $entity, name: $project) {
-    internalId
-  }
-}
-"""
 # Server request-body limit.
 _MAX_REQUEST_BODY_BYTES = 16 << 20
 _MAX_REQUEST_BODY_SIZE = "16 MiB"
-# These two shape each `rows-{i}` body. If either changes, bump the idempotency-key
-# version so retries of partially uploaded tables cannot reuse keys across layouts.
-# The byte target leaves headroom below the hard request limit.
-_TARGET_ROW_BATCH_BODY_BYTES = 8 << 20
-_MAX_ROWS_PER_BATCH = 10_000
 # Evaluations request-schema limits.
 _MAX_DATASET_FIELDS = 10_000
 _MAX_DATASET_FIELD_NAME_LENGTH = 512
@@ -69,6 +42,29 @@ _MAX_OVERSIZED_MEDIA_LOCATIONS = 5
 
 PrimitiveValueType = Literal["boolean", "integer", "number", "string"]
 _CESFieldSource = Literal["input", "output"]
+
+
+class _CESDatasetField(TypedDict):
+    """A CES dataset field declaration, named like `pb.EvalTableField`."""
+
+    source: _CESFieldSource
+    name: str
+    value_type: PrimitiveValueType | Literal["json"]
+    extension_type: NotRequired[_media_ces.CESExtensionType]
+    extension_schema_version: NotRequired[int]
+
+
+class _CESScorer(TypedDict):
+    """A CES scorer declaration, named like `pb.EvalTableScorer`."""
+
+    name: str
+    value_type: PrimitiveValueType
+
+
+class _CESRow(TypedDict):
+    input: dict[str, Any]
+    output: dict[str, Any] | None
+    scores: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -95,80 +91,40 @@ class _CESFieldType:
 
 @dataclass(frozen=True)
 class _BoundRun:
-    entity: str
-    project: str
-    service_api: ServiceApi
-    idempotency_scope: str
     run: LocalRun
     eval_table_key: str
+    step: str
 
 
 @dataclass(frozen=True)
 class _CESWritePayloads:
     dataset_fields: list[_CESDatasetField]
     scorers: list[_CESScorer]
-    row_batches: list[list[_CESRow]]
+    rows_json: list[str]
     media_cells_examined: int
     oversized_media_cells: int
     oversized_locations: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _CESScopeContext:
-    scope_id: str
-    api_key: str | None = field(repr=False)
-    access_token: str | None = field(repr=False)
-
-
-def _ces_base_url(wandb_base_url: str) -> str:
-    """Return the Evaluations service URL for a W&B server."""
-    base_url = os.environ.get(_CES_BASE_URL_ENV)
-    if base_url:
-        return base_url
-    if urls.forge_upstream_url(wandb_base_url) == _MTSAAS_WANDB_BASE_URL:
-        return _MTSAAS_CES_BASE_URL
-    # Dedicated servers route it under the W&B origin.
-    return f"{wandb_base_url}/evaluations"
 
 
 # Bytes in a row-add body other than encoded rows and their separating commas.
 _ROW_BATCH_ENVELOPE_BYTES = len(_encode_json({"rows": []}))
 
 
-def _iter_row_batches(
-    rows: Sequence[_CESRow],
-    *,
-    max_request_body_bytes: int,
-    target_batch_body_bytes: int,
-    max_rows_per_batch: int,
-) -> Iterator[list[_CESRow]]:
-    """Yield ordered row batches within encoded-byte and row-count limits."""
-    batch: list[_CESRow] = []
-    batch_size = _ROW_BATCH_ENVELOPE_BYTES
+def _encode_rows(rows: Sequence[_CESRow]) -> list[str]:
+    """Encode rows as JSON, rejecting any too large to upload alone."""
+    rows_json: list[str] = []
 
     for row_index, row in enumerate(rows):
-        row_size = len(_encode_json(row))
-        if _ROW_BATCH_ENVELOPE_BYTES + row_size >= max_request_body_bytes:
+        row_json = _encode_json(row)
+        if _ROW_BATCH_ENVELOPE_BYTES + len(row_json) >= _MAX_REQUEST_BODY_BYTES:
             raise UsageError(
                 "CES EvalTable rows payload contains a row at index "
                 f"{row_index} whose encoded request must be smaller than "
                 f"{_MAX_REQUEST_BODY_SIZE}."
             )
+        rows_json.append(row_json.decode())
 
-        # An above-target batch contains exactly one row, which already passed
-        # the hard request-size check; the next row flushes it here.
-        if batch and (
-            len(batch) >= max_rows_per_batch
-            or batch_size + 1 + row_size > target_batch_body_bytes
-        ):
-            yield batch
-            batch, batch_size = [], _ROW_BATCH_ENVELOPE_BYTES
-
-        batch_size += row_size + (1 if batch else 0)
-        batch.append(row)
-
-    if batch:
-        yield batch
+    return rows_json
 
 
 class CESWriter:
@@ -177,10 +133,8 @@ class CESWriter:
     def __init__(
         self,
         *,
-        service_api: ServiceApi | None = None,
         unsupported_media_mode: str = "stub",
     ) -> None:
-        self._service_api = service_api
         self._unsupported_media_mode = unsupported_media_mode
         self._bound: _BoundRun | None = None
 
@@ -192,32 +146,10 @@ class CESWriter:
             self._validate_wandb_value(value, column)
 
     def bind_to_run(self, run: LocalRun, key: str, step: int | str) -> None:
-        """Bind the run and derive a stable retry identity for this log location."""
-        from wandb.apis.public.service_api import ServiceApi
-
+        """Bind the run and the history location the table is logged at."""
         if not run.entity or not run.project:
             raise UsageError("CES EvalTable logging requires a W&B entity and project.")
-        # CES replays the same key and body, but rejects a reused key whose body
-        # differs, so a logging location is a stable retry identity, not an update.
-        identity = json.dumps(
-            {
-                "entity": run.entity,
-                "project": run.project,
-                "run_id": run.id,
-                "history_key": key,
-                "step": str(step),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        self._bound = _BoundRun(
-            entity=run.entity,
-            project=run.project,
-            service_api=self._service_api or ServiceApi(run._settings),
-            idempotency_scope=hashlib.sha256(identity.encode()).hexdigest(),
-            run=run,
-            eval_table_key=key,
-        )
+        self._bound = _BoundRun(run=run, eval_table_key=key, step=str(step))
 
     def write(
         self,
@@ -229,10 +161,6 @@ class CESWriter:
     ) -> WriteResult:
         """Prepare and persist the CES resources, then return their history value."""
         bound_run = self._require_bound()
-        base_url = _ces_base_url(bound_run.service_api.base_url)
-
-        # Import lazily so the CES client only loads when a CES EvalTable is written.
-        from coreweave_evaluations import Client
 
         write_payloads = self._build_write_payloads(name=name, rows=rows)
         self._record_media_telemetry(write_payloads)
@@ -246,48 +174,26 @@ class CESWriter:
                 f"{_media_ces.CES_MAX_CELL_BYTES / 1_000_000:g} MB limit. "
                 f"First affected: {locations}.",
             )
-        scope = self._resolve_scope_context(bound_run)
-        with self._create_client(
-            client_type=Client,
-            base_url=base_url,
-            scope=scope,
-        ) as client:
-            created = client.eval_tables.create(
-                namespace=_WANDB_SCOPE_NAMESPACE,
-                scope_id=scope.scope_id,
+
+        response = bound_run.run._log_eval_table(
+            pb.LogEvalTableRequest(
                 name=name,
-                idempotency_key=self._idempotency_key(bound_run, "create"),
+                history_key=bound_run.eval_table_key,
+                step=bound_run.step,
+                dataset_fields=[
+                    pb.EvalTableField(**dataset_field)
+                    for dataset_field in write_payloads.dataset_fields
+                ],
+                scorers=[
+                    pb.EvalTableScorer(**scorer) for scorer in write_payloads.scorers
+                ],
+                rows_json=write_payloads.rows_json,
             )
-            client.eval_tables.columns.create(
-                created.evaluation_id,
-                namespace=_WANDB_SCOPE_NAMESPACE,
-                scope_id=scope.scope_id,
-                dataset_fields=write_payloads.dataset_fields,
-                scorers=write_payloads.scorers,
-                idempotency_key=self._idempotency_key(bound_run, "columns"),
-            )
-            for batch_index, row_batch in enumerate(write_payloads.row_batches):
-                client.eval_tables.rows.add(
-                    created.evaluation_id,
-                    namespace=_WANDB_SCOPE_NAMESPACE,
-                    scope_id=scope.scope_id,
-                    rows=row_batch,
-                    idempotency_key=self._idempotency_key(
-                        bound_run, f"rows-{batch_index}"
-                    ),
-                )
-            version = client.eval_tables.versions.create(
-                created.evaluation_id,
-                namespace=_WANDB_SCOPE_NAMESPACE,
-                scope_id=scope.scope_id,
-                idempotency_key=self._idempotency_key(bound_run, "version"),
-            )
+        )
 
         _logger.debug(
-            "CES EvalTable recorded namespace=%s scope_id=%s evaluation_version_id=%s",
-            _WANDB_SCOPE_NAMESPACE,
-            scope.scope_id,
-            version.evaluation_version_id,
+            "CES EvalTable recorded evaluation_version_id=%s",
+            response.evaluation_version_id,
         )
 
         return WriteResult(
@@ -298,12 +204,12 @@ class CESWriter:
                 "ncols": ncols,
                 "nrows": len(rows),
                 "log_mode": log_mode,
-                "evaluation_id": created.evaluation_id,
-                "evaluation_version_id": version.evaluation_version_id,
-                "dataset_id": created.dataset_id,
-                "dataset_version_id": version.dataset_version_id,
+                "evaluation_id": response.evaluation_id,
+                "evaluation_version_id": response.evaluation_version_id,
+                "dataset_id": response.dataset_id,
+                "dataset_version_id": response.dataset_version_id,
             },
-            logged_id=version.evaluation_version_id,
+            logged_id=response.evaluation_version_id,
         )
 
     def _require_bound(self) -> _BoundRun:
@@ -317,7 +223,7 @@ class CESWriter:
         name: str,
         rows: Sequence[WriteRow],
     ) -> _CESWritePayloads:
-        """Validate and normalize rows, infer schemas, and build request batches."""
+        """Validate and normalize rows, infer schemas, and encode the rows."""
         self._validate_name(
             "EvalTable",
             name,
@@ -420,20 +326,13 @@ class CESWriter:
         self._validate_body_size(
             "columns", {"dataset_fields": dataset_fields, "scorers": scorers}
         )
-        # Materialize batches so every size error precedes config updates and requests.
-        row_batches = list(
-            _iter_row_batches(
-                normalized_rows,
-                max_request_body_bytes=_MAX_REQUEST_BODY_BYTES,
-                target_batch_body_bytes=_TARGET_ROW_BATCH_BODY_BYTES,
-                max_rows_per_batch=_MAX_ROWS_PER_BATCH,
-            )
-        )
+        # Encode rows first so every size error precedes config updates and requests.
+        rows_json = _encode_rows(normalized_rows)
         class_label_accumulator.flush(bound_run.run)
         return _CESWritePayloads(
             dataset_fields=dataset_fields,
             scorers=scorers,
-            row_batches=row_batches,
+            rows_json=rows_json,
             media_cells_examined=media_cells_examined,
             oversized_media_cells=oversized_media_cells,
             oversized_locations=tuple(oversized_locations),
@@ -702,55 +601,3 @@ class CESWriter:
                 f"CES EvalTable {operation} payload must be smaller than "
                 f"{_MAX_REQUEST_BODY_SIZE}."
             )
-
-    def _resolve_scope_context(self, bound_run: _BoundRun) -> _CESScopeContext:
-        """Resolve the project scope and preferred run credential for CES."""
-        response = bound_run.service_api.execute_graphql(
-            _PROJECT_SCOPE_QUERY,
-            variables={"entity": bound_run.entity, "project": bound_run.project},
-        )
-        project = response.get("project") if isinstance(response, dict) else None
-        scope_id = project.get("internalId") if isinstance(project, dict) else None
-        if not isinstance(scope_id, str) or not scope_id:
-            raise UsageError(
-                f"Unable to resolve W&B project {bound_run.entity}/{bound_run.project}."
-            )
-
-        api_key = bound_run.service_api.api_key
-        access_token = None if api_key else bound_run.service_api.access_token()
-        if not api_key and not access_token:
-            raise UsageError(
-                "CES EvalTable logging requires authenticated W&B credentials."
-            )
-
-        return _CESScopeContext(
-            scope_id=scope_id,
-            api_key=api_key,
-            access_token=access_token,
-        )
-
-    def _create_client(
-        self,
-        *,
-        client_type: type[EvaluationsClientT],
-        base_url: str,
-        scope: _CESScopeContext,
-    ) -> EvaluationsClientT:
-        """Create a client while keeping the run's credentials authoritative."""
-        # The client builds the Authorization header from these and rejects a
-        # request that reaches it without one, so a header set on an httpx
-        # client would arrive too late to satisfy it.
-        client = client_type(
-            base_url=base_url,
-            api_key=scope.api_key,
-            bearer_token=scope.access_token,
-        )
-        # The generated constructor fills None credentials from the environment.
-        # Keep the run's resolved choice authoritative when both are present.
-        client.api_key = scope.api_key
-        client.bearer_token = scope.access_token
-        return client
-
-    def _idempotency_key(self, bound_run: _BoundRun, operation: str) -> str:
-        """Derive an operation-specific retry key from the bound log location."""
-        return f"wandb-eval-table-v1-{bound_run.idempotency_scope}-{operation}"

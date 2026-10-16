@@ -156,6 +156,7 @@ class InterfaceShared(InterfaceBase, abc.ABC):
         log_artifact: pb.LogArtifactRequest | None = None,
         download_artifact: pb.DownloadArtifactRequest | None = None,
         link_artifact: pb.LinkArtifactRequest | None = None,
+        log_eval_table: pb.LogEvalTableRequest | None = None,
         defer: pb.DeferRequest | None = None,
         attach: pb.AttachRequest | None = None,
         server_info: pb.ServerInfoRequest | None = None,
@@ -200,6 +201,8 @@ class InterfaceShared(InterfaceBase, abc.ABC):
             request.download_artifact.CopyFrom(download_artifact)
         elif link_artifact:
             request.link_artifact.CopyFrom(link_artifact)
+        elif log_eval_table:
+            request.log_eval_table.CopyFrom(log_eval_table)
         elif defer:
             request.defer.CopyFrom(defer)
         elif attach:
@@ -401,6 +404,13 @@ class InterfaceShared(InterfaceBase, abc.ABC):
         self, link_artifact: pb.LinkArtifactRequest
     ) -> MailboxHandle[pb.Result]:
         rec = self._make_request(link_artifact=link_artifact)
+        return self._deliver(rec)
+
+    def _deliver_log_eval_table(
+        self,
+        log_eval_table: pb.LogEvalTableRequest,
+    ) -> MailboxHandle[pb.Result]:
+        rec = self._make_request(log_eval_table=log_eval_table)
         return self._deliver(rec)
 
     def _publish_artifact(self, proto_artifact: pb.ArtifactRecord) -> None:
