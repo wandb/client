@@ -239,7 +239,9 @@ def test_ces_eval_table_media_telemetry_counts_affected_writes(
     recorder.log.assert_not_called()
 
 
-def test_ces_eval_table_writes_supported_media_in_raise_mode(deliver_log_eval_table, run):
+def test_ces_eval_table_writes_supported_media_in_raise_mode(
+    deliver_log_eval_table, run
+):
     from PIL import Image as PILImage
 
     image = wandb.Image(PILImage.new("RGB", (2, 2), color="red"))

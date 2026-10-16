@@ -969,27 +969,27 @@ def test_eval_table_writes_supported_media_extensions_to_ces(
         {field.name: value for field, value in dataset_field.ListFields()}
         for dataset_field in request.dataset_fields
     ] == [
-            {
-                "source": "input",
-                "name": "image",
-                "value_type": "json",
-                "extension_type": "wandb-image",
-                "extension_schema_version": 1,
-            },
-            {
-                "source": "input",
-                "name": "audio",
-                "value_type": "json",
-                "extension_type": "wandb-audio",
-                "extension_schema_version": 1,
-            },
-            {
-                "source": "input",
-                "name": "video",
-                "value_type": "json",
-                "extension_type": "wandb-video",
-                "extension_schema_version": 1,
-            },
+        {
+            "source": "input",
+            "name": "image",
+            "value_type": "json",
+            "extension_type": "wandb-image",
+            "extension_schema_version": 1,
+        },
+        {
+            "source": "input",
+            "name": "audio",
+            "value_type": "json",
+            "extension_type": "wandb-audio",
+            "extension_schema_version": 1,
+        },
+        {
+            "source": "input",
+            "name": "video",
+            "value_type": "json",
+            "extension_type": "wandb-video",
+            "extension_schema_version": 1,
+        },
     ]
     assert not request.scorers
     inputs = json.loads(request.rows_json[0])["input"]
