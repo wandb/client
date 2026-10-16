@@ -15,6 +15,7 @@ import (
 	"github.com/google/wire"
 
 	"github.com/wandb/wandb/core/internal/api"
+	"github.com/wandb/wandb/core/internal/evaltables"
 	"github.com/wandb/wandb/core/internal/featurechecker"
 	fs "github.com/wandb/wandb/core/internal/filestream"
 	"github.com/wandb/wandb/core/internal/filestreamstats"
@@ -125,6 +126,14 @@ type Sender struct {
 
 	// artifactWG is a wait group for artifact-related goroutines
 	artifactWG sync.WaitGroup
+
+	// evalTableUploader uploads EvalTables to CES.
+	//
+	// It is nil in offline mode.
+	evalTableUploader *evaltables.Uploader
+
+	// evalTableWG is a wait group for EvalTable upload goroutines.
+	evalTableWG sync.WaitGroup
 
 	// runHandle is parts of the Stream initialized after the first RunRecord
 	runHandle *runhandle.RunHandle
@@ -265,6 +274,17 @@ func (f *SenderFactory) NewWithFileStream(
 		stats:             f.Stats,
 	}
 	s.stepTracker = NewHistoryStepTracker(s.logger, s.runHandle)
+
+	if !s.settings.IsOffline() {
+		s.evalTableUploader = evaltables.NewUploader(evaltables.UploaderParams{
+			BaseURL:            f.BaseURL,
+			CredentialProvider: f.CredentialProvider,
+			GraphqlClient:      f.GraphqlClient,
+			Logger:             f.Logger,
+			RunHandle:          f.RunHandle,
+			Settings:           f.Settings,
+		})
+	}
 
 	if !s.settings.IsOffline() && !s.settings.IsJobCreationDisabled() {
 		s.jobBuilder = launch.NewJobBuilder(s.settings, s.logger, false)
@@ -451,6 +471,9 @@ func (s *Sender) sendRequest(
 		s.sendLinkArtifact(x.LinkArtifact, request)
 	case *spb.Request_DownloadArtifact:
 		s.sendRequestDownloadArtifact(x.DownloadArtifact, request)
+
+	case *spb.Request_LogEvalTable:
+		s.sendRequestLogEvalTable(x.LogEvalTable, request)
 
 	case *spb.Request_SenderRead:
 		// TODO: implement this
@@ -673,6 +696,7 @@ func (s *Sender) finishRunSync(
 	// Wait for artifacts operations to complete here to detect
 	// code artifacts, then upload the code (aka "job") artifact, if any.
 	s.artifactWG.Wait()
+	s.evalTableWG.Wait()
 
 	s.mu.Lock()
 	if upserter != nil {
@@ -1343,6 +1367,48 @@ func (s *Sender) sendRequestLogArtifact(
 					LogArtifactResponse: &response,
 				},
 			})
+	}()
+}
+
+func (s *Sender) sendRequestLogEvalTable(
+	msg *spb.LogEvalTableRequest,
+	request *runwork.Request,
+) {
+	respond := func(response *spb.LogEvalTableResponse) {
+		s.respond(request,
+			&spb.Response{
+				ResponseType: &spb.Response_LogEvalTableResponse{
+					LogEvalTableResponse: response,
+				},
+			})
+	}
+
+	if s.evalTableUploader == nil {
+		respond(&spb.LogEvalTableResponse{
+			ErrorMessage: "cannot log an EvalTable in offline mode",
+		})
+		return
+	}
+
+	op := s.operations.New(fmt.Sprintf("uploading eval table %s", msg.GetName()))
+	ctx := op.Context(s.runWork.BeforeEndCtx())
+
+	s.evalTableWG.Add(1)
+	go func() {
+		defer s.evalTableWG.Done()
+
+		response, err := s.evalTableUploader.Upload(ctx, msg)
+		op.Finish()
+
+		if err != nil {
+			s.logger.CaptureError(
+				"stream",
+				fmt.Errorf("sender: failed to log EvalTable: %v", err),
+			)
+			response = &spb.LogEvalTableResponse{ErrorMessage: err.Error()}
+		}
+
+		respond(response)
 	}()
 }
 

@@ -1,0 +1,269 @@
+package evaltables_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	"github.com/wandb/wandb/core/internal/api"
+	"github.com/wandb/wandb/core/internal/evaltables"
+	"github.com/wandb/wandb/core/internal/gqlmock"
+	"github.com/wandb/wandb/core/internal/observabilitytest"
+	"github.com/wandb/wandb/core/internal/runhandle"
+	"github.com/wandb/wandb/core/internal/runupsertertest"
+	"github.com/wandb/wandb/core/internal/settings"
+	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
+)
+
+const tablePath = "/evaluations/v1/namespaces/wandb/scopes/project-internal-id/eval-tables"
+
+type cesRequest struct {
+	Path           string
+	IdempotencyKey string
+	Body           string
+}
+
+// fakeCES is a CES server that records requests and returns fixed IDs.
+type fakeCES struct {
+	*httptest.Server
+
+	mu       sync.Mutex
+	requests []cesRequest
+}
+
+func newFakeCES(t *testing.T) *fakeCES {
+	t.Helper()
+	ces := &fakeCES{}
+
+	ces.Server = httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+
+			ces.mu.Lock()
+			ces.requests = append(ces.requests, cesRequest{
+				Path:           r.URL.Path,
+				IdempotencyKey: r.Header.Get("Idempotency-Key"),
+				Body:           string(body),
+			})
+			ces.mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == tablePath:
+				_, _ = w.Write([]byte(`{
+					"evaluation_id": "eval-id",
+					"dataset_id": "dataset-id"
+				}`))
+			case strings.HasSuffix(r.URL.Path, "/versions"):
+				_, _ = w.Write([]byte(`{
+					"evaluation_version_id": "eval-version-id",
+					"dataset_version_id": "dataset-version-id"
+				}`))
+			default:
+				_, _ = w.Write([]byte(`{}`))
+			}
+		}))
+	t.Cleanup(ces.Close)
+
+	return ces
+}
+
+func (c *fakeCES) Requests() []cesRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.requests
+}
+
+const projectFoundJSON = `{"project": {"internalId": "project-internal-id"}}`
+
+// newTestUploader returns an Uploader for a run in test-entity/test-project
+// that uploads to ces.
+//
+// projectJSON is the response to the project's internal ID lookup.
+func newTestUploader(
+	t *testing.T,
+	ces *fakeCES,
+	projectJSON string,
+) (*evaltables.Uploader, *gqlmock.MockClient) {
+	t.Helper()
+	t.Setenv("CES_BASE_URL", "")
+
+	mockGQL := gqlmock.NewMockClient()
+	mockGQL.StubMatchOnce(gqlmock.WithOpName("ProjectInternalID"), projectJSON)
+
+	runHandle := runhandle.New()
+	require.NoError(t, runHandle.Init(runupsertertest.NewOfflineUpserter(t)))
+
+	return evaltables.NewUploader(evaltables.UploaderParams{
+		BaseURL:            mustParseURL(t, ces.URL),
+		CredentialProvider: api.NewAPIKeyCredentialProvider("test-api-key"),
+		GraphqlClient:      mockGQL,
+		Logger:             observabilitytest.NewTestLogger(t),
+		RunHandle:          runHandle,
+		Settings:           settings.New(),
+	}), mockGQL
+}
+
+func TestUpload(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, mockGQL := newTestUploader(t, ces, projectFoundJSON)
+
+	response, err := uploader.Upload(context.Background(), &spb.LogEvalTableRequest{
+		Name:       "my-table",
+		HistoryKey: "eval",
+		Step:       "3",
+		DatasetFields: []*spb.EvalTableField{
+			{Source: "input", Name: "prompt", ValueType: "string"},
+			{
+				Source:                 "output",
+				Name:                   "image",
+				ValueType:              "json",
+				ExtensionType:          "wandb.image",
+				ExtensionSchemaVersion: 1,
+			},
+		},
+		Scorers: []*spb.EvalTableScorer{{Name: "accuracy", ValueType: "number"}},
+		RowsJson: []string{
+			`{"input":{"prompt":"a"},"output":{},"scores":{"accuracy":1}}`,
+			`{"input":{"prompt":"b"},"output":{},"scores":{"accuracy":0}}`,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, &spb.LogEvalTableResponse{
+		EvaluationId:        "eval-id",
+		EvaluationVersionId: "eval-version-id",
+		DatasetId:           "dataset-id",
+		DatasetVersionId:    "dataset-version-id",
+	}, response)
+	gqlmock.AssertVariables(t, mockGQL.AllRequests()[0],
+		gqlmock.GQLVar("entityName", gomock.Eq("test-entity")),
+		gqlmock.GQLVar("projectName", gomock.Eq("test-project")))
+
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+	assert.Equal(t, tablePath, requests[0].Path)
+	assert.JSONEq(t, `{"name": "my-table"}`, requests[0].Body)
+	assert.Equal(t, tablePath+"/eval-id/columns", requests[1].Path)
+	assert.JSONEq(t, `{
+		"dataset_fields": [
+			{"source": "input", "name": "prompt", "value_type": "string"},
+			{
+				"source": "output",
+				"name": "image",
+				"value_type": "json",
+				"extension_type": "wandb.image",
+				"extension_schema_version": 1
+			}
+		],
+		"scorers": [{"name": "accuracy", "value_type": "number"}]
+	}`, requests[1].Body)
+	assert.Equal(t, tablePath+"/eval-id/rows", requests[2].Path)
+	assert.JSONEq(t, `{"rows": [
+		{"input": {"prompt": "a"}, "output": {}, "scores": {"accuracy": 1}},
+		{"input": {"prompt": "b"}, "output": {}, "scores": {"accuracy": 0}}
+	]}`, requests[2].Body)
+	assert.Equal(t, tablePath+"/eval-id/versions", requests[3].Path)
+}
+
+func TestUpload_IdempotencyKeys(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	request := &spb.LogEvalTableRequest{
+		Name:       "my-table",
+		HistoryKey: "eval",
+		Step:       "3",
+		RowsJson:   []string{`{}`},
+	}
+
+	_, err := uploader.Upload(context.Background(), request)
+	require.NoError(t, err)
+	_, err = uploader.Upload(context.Background(), request)
+	require.NoError(t, err)
+
+	requests := ces.Requests()
+	require.Len(t, requests, 8)
+	keys := make([]string, len(requests))
+	for i, req := range requests {
+		keys[i] = req.IdempotencyKey
+	}
+	prefix, found := strings.CutSuffix(keys[0], "-create")
+	require.True(t, found, keys[0])
+	assert.Regexp(t, `^wandb-eval-table-v2-[0-9a-f]{64}$`, prefix)
+	assert.Equal(t,
+		[]string{
+			prefix + "-create",
+			prefix + "-columns",
+			prefix + "-rows-0",
+			prefix + "-version",
+		},
+		keys[:4])
+	// Retrying at the same location reuses the same keys.
+	assert.Equal(t, keys[:4], keys[4:])
+}
+
+func TestUpload_DifferentStepsUseDifferentKeys(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t", HistoryKey: "eval", Step: "1"})
+	require.NoError(t, err)
+	_, err = uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t", HistoryKey: "eval", Step: "2"})
+	require.NoError(t, err)
+
+	requests := ces.Requests()
+	require.Len(t, requests, 6) // No rows requests for empty tables.
+	assert.NotEqual(t, requests[0].IdempotencyKey, requests[3].IdempotencyKey)
+}
+
+func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// Each row is 1 MiB, so at most 7 fit under the 8 MiB target with the
+	// surrounding JSON.
+	row, err := json.Marshal(map[string]string{"x": strings.Repeat("a", 1<<20)})
+	require.NoError(t, err)
+	rows := make([]string, 10)
+	for i := range rows {
+		rows[i] = string(row)
+	}
+
+	_, err = uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t", RowsJson: rows})
+	require.NoError(t, err)
+
+	var batchSizes []int
+	for _, req := range ces.Requests() {
+		if !strings.HasSuffix(req.Path, "/rows") {
+			continue
+		}
+		var body struct{ Rows []json.RawMessage }
+		require.NoError(t, json.Unmarshal([]byte(req.Body), &body))
+		assert.LessOrEqual(t, len(req.Body), 8<<20)
+		batchSizes = append(batchSizes, len(body.Rows))
+	}
+	assert.Equal(t, []int{7, 3}, batchSizes)
+}
+
+func TestUpload_ProjectNotFound(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, `{"project": null}`)
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t"})
+
+	assert.ErrorContains(t, err, "project test-entity/test-project not found")
+	assert.Empty(t, ces.Requests())
+}
