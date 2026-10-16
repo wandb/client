@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import gzip
 import logging
 import math
+import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -30,6 +33,9 @@ _logger = logging.getLogger(__name__)
 # Server request-body limit.
 _MAX_REQUEST_BODY_BYTES = 16 << 20
 _MAX_REQUEST_BODY_SIZE = "16 MiB"
+# Tables with more encoded row characters than this send their rows to
+# wandb-core in a file, keeping requests far below the 2 GiB message limit.
+_ROWS_FILE_THRESHOLD_CHARS = 64 << 20
 # Evaluations request-schema limits.
 _MAX_DATASET_FIELDS = 10_000
 _MAX_DATASET_FIELD_NAME_LENGTH = 512
@@ -127,6 +133,35 @@ def _encode_rows(rows: Sequence[_CESRow]) -> list[str]:
     return rows_json
 
 
+def _write_rows_file(rows_json: Sequence[str]) -> str:
+    """Write rows to a gzipped temporary file, one per line.
+
+    wandb-core deletes the file after reading it.
+
+    Returns:
+        The file's path.
+    """
+    file = tempfile.NamedTemporaryFile(
+        prefix="wandb-eval-table-",
+        suffix=".rows.jl.gz",
+        delete=False,
+    )
+    try:
+        with (
+            file,
+            gzip.open(file, mode="wt", encoding="utf-8", compresslevel=1) as rows,
+        ):
+            for row_json in rows_json:
+                # Encoded JSON has no raw newlines.
+                rows.write(row_json + "\n")
+    except BaseException:
+        # Delete the partial file, then propagate the original error.
+        os.remove(file.name)
+        raise
+
+    return file.name
+
+
 class CESWriter:
     """Write an immutable EvalTable through the Evaluations service."""
 
@@ -175,21 +210,23 @@ class CESWriter:
                 f"First affected: {locations}.",
             )
 
-        response = bound_run.run._log_eval_table(
-            pb.LogEvalTableRequest(
-                name=name,
-                history_key=bound_run.eval_table_key,
-                step=bound_run.step,
-                dataset_fields=[
-                    pb.EvalTableField(**dataset_field)
-                    for dataset_field in write_payloads.dataset_fields
-                ],
-                scorers=[
-                    pb.EvalTableScorer(**scorer) for scorer in write_payloads.scorers
-                ],
-                rows_json=write_payloads.rows_json,
-            )
+        request = pb.LogEvalTableRequest(
+            name=name,
+            history_key=bound_run.eval_table_key,
+            step=bound_run.step,
+            dataset_fields=[
+                pb.EvalTableField(**dataset_field)
+                for dataset_field in write_payloads.dataset_fields
+            ],
+            scorers=[pb.EvalTableScorer(**scorer) for scorer in write_payloads.scorers],
         )
+        rows_chars = sum(len(row_json) for row_json in write_payloads.rows_json)
+        if rows_chars > _ROWS_FILE_THRESHOLD_CHARS:
+            request.rows_file_path = _write_rows_file(write_payloads.rows_json)
+        else:
+            request.rows_json.extend(write_payloads.rows_json)
+
+        response = bound_run.run._log_eval_table(request)
 
         _logger.debug(
             "CES EvalTable recorded evaluation_version_id=%s",

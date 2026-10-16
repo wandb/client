@@ -2549,8 +2549,17 @@ pub struct LogEvalTableRequest {
     ///
     /// Values are already normalized for CES: media cells hold CES extension
     /// values, and every value matches its column's declared type.
+    ///
+    /// Only one of {rows_json, rows_file_path} should be set.
     #[prost(string, repeated, tag = "6")]
     pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// A gzipped file of the table's rows, one JSON object per line in the
+    /// same form as rows_json.
+    ///
+    /// It is used for tables too large to send inline. wandb-core deletes the
+    /// file after reading it, whether or not the upload succeeds.
+    #[prost(string, tag = "7")]
+    pub rows_file_path: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "200")]
     pub info: ::core::option::Option<RequestInfo>,
 }

@@ -1529,13 +1529,14 @@ class LogArtifactResponse(_message.Message):
     def __init__(self, artifact_id: _Optional[str] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class LogEvalTableRequest(_message.Message):
-    __slots__ = ("name", "history_key", "step", "dataset_fields", "scorers", "rows_json", "_info")
+    __slots__ = ("name", "history_key", "step", "dataset_fields", "scorers", "rows_json", "rows_file_path", "_info")
     NAME_FIELD_NUMBER: _ClassVar[int]
     HISTORY_KEY_FIELD_NUMBER: _ClassVar[int]
     STEP_FIELD_NUMBER: _ClassVar[int]
     DATASET_FIELDS_FIELD_NUMBER: _ClassVar[int]
     SCORERS_FIELD_NUMBER: _ClassVar[int]
     ROWS_JSON_FIELD_NUMBER: _ClassVar[int]
+    ROWS_FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     _INFO_FIELD_NUMBER: _ClassVar[int]
     name: str
     history_key: str
@@ -1543,8 +1544,9 @@ class LogEvalTableRequest(_message.Message):
     dataset_fields: _containers.RepeatedCompositeFieldContainer[EvalTableField]
     scorers: _containers.RepeatedCompositeFieldContainer[EvalTableScorer]
     rows_json: _containers.RepeatedScalarFieldContainer[str]
+    rows_file_path: str
     _info: _wandb_base_pb2._RequestInfo
-    def __init__(self, name: _Optional[str] = ..., history_key: _Optional[str] = ..., step: _Optional[str] = ..., dataset_fields: _Optional[_Iterable[_Union[EvalTableField, _Mapping]]] = ..., scorers: _Optional[_Iterable[_Union[EvalTableScorer, _Mapping]]] = ..., rows_json: _Optional[_Iterable[str]] = ..., _info: _Optional[_Union[_wandb_base_pb2._RequestInfo, _Mapping]] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., history_key: _Optional[str] = ..., step: _Optional[str] = ..., dataset_fields: _Optional[_Iterable[_Union[EvalTableField, _Mapping]]] = ..., scorers: _Optional[_Iterable[_Union[EvalTableScorer, _Mapping]]] = ..., rows_json: _Optional[_Iterable[str]] = ..., rows_file_path: _Optional[str] = ..., _info: _Optional[_Union[_wandb_base_pb2._RequestInfo, _Mapping]] = ...) -> None: ...
 
 class EvalTableField(_message.Message):
     __slots__ = ("source", "name", "value_type", "extension_type", "extension_schema_version")

@@ -1,11 +1,15 @@
 package evaltables_test
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -255,6 +259,51 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 		batchSizes = append(batchSizes, len(body.Rows))
 	}
 	assert.Equal(t, []int{7, 3}, batchSizes)
+}
+
+// writeRowsFile writes rows to a gzipped file, one per line.
+func writeRowsFile(t *testing.T, rows ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "rows.jl.gz")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	gzWriter := gzip.NewWriter(file)
+	for _, row := range rows {
+		_, err = gzWriter.Write([]byte(row + "\n"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, gzWriter.Close())
+	require.NoError(t, file.Close())
+	return path
+}
+
+func TestUpload_ReadsAndDeletesRowsFile(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// Longer than bufio.Scanner's default limit.
+	longRow := fmt.Sprintf(`{"x":%q}`, strings.Repeat("a", 100_000))
+	path := writeRowsFile(t, `{"x":1}`, longRow)
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t", RowsFilePath: path})
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+	assert.Equal(t, `{"rows":[{"x":1},`+longRow+`]}`, requests[2].Body)
+	assert.NoFileExists(t, path)
+}
+
+func TestUpload_DeletesRowsFileOnFailure(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, `{"project": null}`)
+	path := writeRowsFile(t, `{"x":1}`)
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t", RowsFilePath: path})
+
+	require.Error(t, err)
+	assert.NoFileExists(t, path)
 }
 
 func TestUpload_ProjectNotFound(t *testing.T) {

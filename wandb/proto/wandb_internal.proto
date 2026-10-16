@@ -1319,7 +1319,16 @@ message LogEvalTableRequest {
   //
   // Values are already normalized for CES: media cells hold CES extension
   // values, and every value matches its column's declared type.
+  //
+  // Only one of {rows_json, rows_file_path} should be set.
   repeated string rows_json = 6;
+
+  // A gzipped file of the table's rows, one JSON object per line in the
+  // same form as rows_json.
+  //
+  // It is used for tables too large to send inline. wandb-core deletes the
+  // file after reading it, whether or not the upload succeeds.
+  string rows_file_path = 7;
 
   _RequestInfo _info = 200;
 }

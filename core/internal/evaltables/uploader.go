@@ -1,14 +1,19 @@
 package evaltables
 
 import (
+	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"iter"
 	"net/url"
+	"os"
 	"sync"
 
 	"github.com/Khan/genqlient/graphql"
@@ -88,11 +93,16 @@ func NewUploader(params UploaderParams) *Uploader {
 // Upload creates an EvalTable in CES, adds its columns and rows,
 // and cuts a version.
 //
-// It must be called after the run is initialized.
+// It must be called after the run is initialized. It deletes the request's
+// rows file, if any.
 func (u *Uploader) Upload(
 	ctx context.Context,
 	request *spb.LogEvalTableRequest,
 ) (*spb.LogEvalTableResponse, error) {
+	if path := request.GetRowsFilePath(); path != "" {
+		defer func() { _ = os.Remove(path) }()
+	}
+
 	evalTables, err := u.evalTables()
 	if err != nil {
 		return nil, err
@@ -134,19 +144,24 @@ func (u *Uploader) Upload(
 		return nil, fmt.Errorf("evaltables: failed to add columns: %v", err)
 	}
 
-	for i, body := range rowBatchBodies(request.GetRowsJson()) {
-		_, err = evalTables.Rows.Add(
+	batchIndex := 0
+	for body, err := range rowBatchBodies(requestRows(request)) {
+		if err != nil {
+			return nil, fmt.Errorf("evaltables: failed to read rows: %v", err)
+		}
+
+		if _, err := evalTables.Rows.Add(
 			ctx,
 			created.EvaluationID,
 			ces.EvalTableRowAddParams{ScopeID: scope},
-			keys.option(fmt.Sprintf("rows-%d", i)),
+			keys.option(fmt.Sprintf("rows-%d", batchIndex)),
 			// The rows are already JSON, so send them without decoding them
 			// into the SDK's types.
 			option.WithRequestBody("application/json", body),
-		)
-		if err != nil {
+		); err != nil {
 			return nil, fmt.Errorf("evaltables: failed to add rows: %v", err)
 		}
+		batchIndex++
 	}
 
 	version, err := evalTables.Versions.New(
@@ -249,45 +264,106 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 	return params
 }
 
+// requestRows returns the request's JSON-encoded rows.
+func requestRows(request *spb.LogEvalTableRequest) iter.Seq2[[]byte, error] {
+	if path := request.GetRowsFilePath(); path != "" {
+		return rowsFromFile(path)
+	}
+
+	return func(yield func([]byte, error) bool) {
+		for _, row := range request.GetRowsJson() {
+			if !yield([]byte(row), nil) {
+				return
+			}
+		}
+	}
+}
+
+// rowsFromFile returns the rows in a gzipped file with one row per line.
+func rowsFromFile(path string) iter.Seq2[[]byte, error] {
+	return func(yield func([]byte, error) bool) {
+		file, err := os.Open(path)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer func() { _ = file.Close() }()
+
+		gzReader, err := gzip.NewReader(file)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer func() { _ = gzReader.Close() }()
+
+		// Not a bufio.Scanner, which limits line lengths.
+		reader := bufio.NewReader(gzReader)
+		for {
+			line, err := reader.ReadBytes('\n')
+			line = bytes.TrimSuffix(line, []byte{'\n'})
+
+			if len(line) > 0 && !yield(line, nil) {
+				return
+			}
+
+			switch {
+			case errors.Is(err, io.EOF):
+				return
+			case err != nil:
+				yield(nil, err)
+				return
+			}
+		}
+	}
+}
+
 // rowBatchBodies groups JSON-encoded rows into row append request bodies.
 //
 // Each body has at most maxRowsPerBatch rows and is at most
 // targetRowBatchBytes, unless it has a single larger row.
-func rowBatchBodies(rowsJSON []string) [][]byte {
+// It stops after the first error from rows.
+func rowBatchBodies(rows iter.Seq2[[]byte, error]) iter.Seq2[[]byte, error] {
 	const prefix, suffix = `{"rows":[`, `]}`
 
-	var bodies [][]byte
-	var body bytes.Buffer
-	nrows := 0
+	return func(yield func([]byte, error) bool) {
+		var body bytes.Buffer
+		nrows := 0
 
-	flush := func() {
-		body.WriteString(suffix)
-		bodies = append(bodies, bytes.Clone(body.Bytes()))
-		body.Reset()
-		nrows = 0
-	}
+		flush := func() bool {
+			body.WriteString(suffix)
+			batch := bytes.Clone(body.Bytes())
+			body.Reset()
+			nrows = 0
+			return yield(batch, nil)
+		}
 
-	for _, row := range rowsJSON {
-		if nrows > 0 &&
-			(nrows >= maxRowsPerBatch ||
-				body.Len()+1+len(row)+len(suffix) > targetRowBatchBytes) {
+		for row, err := range rows {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			if nrows > 0 &&
+				(nrows >= maxRowsPerBatch ||
+					body.Len()+1+len(row)+len(suffix) > targetRowBatchBytes) {
+				if !flush() {
+					return
+				}
+			}
+
+			if nrows == 0 {
+				body.WriteString(prefix)
+			} else {
+				body.WriteByte(',')
+			}
+			body.Write(row)
+			nrows++
+		}
+
+		if nrows > 0 {
 			flush()
 		}
-
-		if nrows == 0 {
-			body.WriteString(prefix)
-		} else {
-			body.WriteByte(',')
-		}
-		body.WriteString(row)
-		nrows++
 	}
-
-	if nrows > 0 {
-		flush()
-	}
-
-	return bodies
 }
 
 // idempotencyKeys derives CES idempotency keys for one EvalTable upload.

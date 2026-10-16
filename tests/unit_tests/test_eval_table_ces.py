@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gzip
 import json
+import os
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -138,6 +140,32 @@ def test_ces_eval_table_writes_columns_rows_and_version(
     assert "evaluate_call_id" not in history_value
     assert et._immutable_write_result is not None
     assert et._immutable_write_result.logged_id == "evaluation-version-1"
+
+
+def test_ces_eval_table_sends_large_tables_in_a_rows_file(
+    deliver_log_eval_table,
+    run,
+    monkeypatch,
+):
+    monkeypatch.setattr(ces, "_ROWS_FILE_THRESHOLD_CHARS", 0)
+    et = wandb.EvalTable(
+        columns=["value"],
+        data=[["a\nb"], ["c"]],
+        output_columns=["value"],
+        backend="ces",
+    )
+
+    run.log({"eval": et})
+
+    [request] = _sent(deliver_log_eval_table)
+    assert not request.rows_json
+    with gzip.open(request.rows_file_path, mode="rt", encoding="utf-8") as file:
+        rows = [json.loads(line) for line in file]
+    os.remove(request.rows_file_path)
+    assert rows == [
+        {"input": {"row": 1}, "output": {"value": "a\nb"}, "scores": {}},
+        {"input": {"row": 2}, "output": {"value": "c"}, "scores": {}},
+    ]
 
 
 def test_ces_eval_table_stubs_media_until_native_support_exists(
