@@ -703,7 +703,7 @@ message AlertResult {}
 // step with a PartialHistoryRequest, which produces artificial Records
 // when a step is committed).
 //
-// Next ID: 85
+// Next ID: 86
 message Request {
   reserved 18, 22, 75, 76, 79, 80;
 
@@ -751,6 +751,8 @@ message Request {
     // Requests collecting information about the system environment and resources.
     ProbeSystemInfoRequest probe_system_info = 83;
 
+    LogEvalTableRequest log_eval_table = 85;
+
     TestInjectRequest test_inject = 1000;
   }
 }
@@ -758,7 +760,7 @@ message Request {
 /*
  * Response: all non persistent responses to Requests
  *
- * Next ID: 75
+ * Next ID: 77
  */
 message Response {
   reserved 32, 72, 73;
@@ -790,6 +792,7 @@ message Response {
     LinkArtifactResponse link_artifact_response = 71;
     SyncResponse sync_response = 70;
     OperationStatsResponse operations_response = 74;
+    LogEvalTableResponse log_eval_table_response = 76;
     TestInjectResponse test_inject_response = 1000;
   }
 }
@@ -1285,6 +1288,73 @@ message LogArtifactRequest {
 message LogArtifactResponse {
   string artifact_id = 1;
   string error_message = 2;
+}
+
+/*
+ * LogEvalTable:
+ */
+
+// Uploads an EvalTable to the CoreWeave Evaluations Service (CES).
+//
+// wandb-core creates the table, declares its columns, appends its rows,
+// and cuts a version, then responds with the resulting CES IDs.
+message LogEvalTableRequest {
+  // The EvalTable's name.
+  string name = 1;
+
+  // The history key and step at which the table is logged.
+  //
+  // They identify the logging location in CES idempotency keys, so that
+  // retrying a log at the same location reuses the same CES resources.
+  // CES does not store them.
+  string history_key = 2;
+  string step = 3;
+
+  // Dataset fields and scorers in the order CES should declare them.
+  repeated EvalTableField dataset_fields = 4;
+  repeated EvalTableScorer scorers = 5;
+
+  // The table's rows in order, each a JSON object of the form
+  // {"input": {...}, "output": {...} | null, "scores": {...}}.
+  //
+  // Values are already normalized for CES: media cells hold CES extension
+  // values, and every value matches its column's declared type.
+  repeated string rows_json = 6;
+
+  _RequestInfo _info = 200;
+}
+
+// A CES dataset field: an input or output column of an EvalTable.
+message EvalTableField {
+  // "input" or "output".
+  string source = 1;
+  string name = 2;
+
+  // A CES value type: "boolean", "integer", "number", "string", or "json".
+  string value_type = 3;
+
+  // The CES extension type of a media column, like "wandb-image", and its
+  // schema version. Both are unset for other columns.
+  string extension_type = 4;
+  int32 extension_schema_version = 5;
+}
+
+// A CES scorer: a score column of an EvalTable.
+message EvalTableScorer {
+  string name = 1;
+
+  // A CES primitive value type: "boolean", "integer", "number", or "string".
+  string value_type = 2;
+}
+
+message LogEvalTableResponse {
+  string evaluation_id = 1;
+  string evaluation_version_id = 2;
+  string dataset_id = 3;
+  string dataset_version_id = 4;
+
+  // Set if the upload failed, in which case the IDs are unset.
+  string error_message = 5;
 }
 
 /*

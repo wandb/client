@@ -1691,12 +1691,12 @@ pub struct AlertResult {}
 /// step with a PartialHistoryRequest, which produces artificial Records
 /// when a step is committed).
 ///
-/// Next ID: 85
+/// Next ID: 86
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Request {
     #[prost(
         oneof = "request::RequestType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 84, 11, 12, 13, 14, 17, 20, 21, 23, 24, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 77, 78, 81, 82, 83, 1000"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 84, 11, 12, 13, 14, 17, 20, 21, 23, 24, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 77, 78, 81, 82, 83, 85, 1000"
     )]
     pub request_type: ::core::option::Option<request::RequestType>,
 }
@@ -1778,18 +1778,20 @@ pub mod request {
         /// Requests collecting information about the system environment and resources.
         #[prost(message, tag = "83")]
         ProbeSystemInfo(super::ProbeSystemInfoRequest),
+        #[prost(message, tag = "85")]
+        LogEvalTable(super::LogEvalTableRequest),
         #[prost(message, tag = "1000")]
         TestInject(super::TestInjectRequest),
     }
 }
 /// Response: all non persistent responses to Requests
 ///
-/// Next ID: 75
+/// Next ID: 77
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
     #[prost(
         oneof = "response::ResponseType",
-        tags = "18, 19, 20, 24, 25, 26, 27, 75, 28, 29, 30, 31, 35, 36, 37, 64, 65, 66, 67, 68, 69, 71, 70, 74, 1000"
+        tags = "18, 19, 20, 24, 25, 26, 27, 75, 28, 29, 30, 31, 35, 36, 37, 64, 65, 66, 67, 68, 69, 71, 70, 74, 76, 1000"
     )]
     pub response_type: ::core::option::Option<response::ResponseType>,
 }
@@ -1845,6 +1847,8 @@ pub mod response {
         SyncResponse(super::SyncResponse),
         #[prost(message, tag = "74")]
         OperationsResponse(super::OperationStatsResponse),
+        #[prost(message, tag = "76")]
+        LogEvalTableResponse(super::LogEvalTableResponse),
         #[prost(message, tag = "1000")]
         TestInjectResponse(super::TestInjectResponse),
     }
@@ -2515,6 +2519,80 @@ pub struct LogArtifactResponse {
     #[prost(string, tag = "1")]
     pub artifact_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub error_message: ::prost::alloc::string::String,
+}
+/// Uploads an EvalTable to the CoreWeave Evaluations Service (CES).
+///
+/// wandb-core creates the table, declares its columns, appends its rows,
+/// and cuts a version, then responds with the resulting CES IDs.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LogEvalTableRequest {
+    /// The EvalTable's name.
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    /// The history key and step at which the table is logged.
+    ///
+    /// They identify the logging location in CES idempotency keys, so that
+    /// retrying a log at the same location reuses the same CES resources.
+    /// CES does not store them.
+    #[prost(string, tag = "2")]
+    pub history_key: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub step: ::prost::alloc::string::String,
+    /// Dataset fields and scorers in the order CES should declare them.
+    #[prost(message, repeated, tag = "4")]
+    pub dataset_fields: ::prost::alloc::vec::Vec<EvalTableField>,
+    #[prost(message, repeated, tag = "5")]
+    pub scorers: ::prost::alloc::vec::Vec<EvalTableScorer>,
+    /// The table's rows in order, each a JSON object of the form
+    /// {"input": {...}, "output": {...} | null, "scores": {...}}.
+    ///
+    /// Values are already normalized for CES: media cells hold CES extension
+    /// values, and every value matches its column's declared type.
+    #[prost(string, repeated, tag = "6")]
+    pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "200")]
+    pub info: ::core::option::Option<RequestInfo>,
+}
+/// A CES dataset field: an input or output column of an EvalTable.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EvalTableField {
+    /// "input" or "output".
+    #[prost(string, tag = "1")]
+    pub source: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    /// A CES value type: "boolean", "integer", "number", "string", or "json".
+    #[prost(string, tag = "3")]
+    pub value_type: ::prost::alloc::string::String,
+    /// The CES extension type of a media column, like "wandb-image", and its
+    /// schema version. Both are unset for other columns.
+    #[prost(string, tag = "4")]
+    pub extension_type: ::prost::alloc::string::String,
+    #[prost(int32, tag = "5")]
+    pub extension_schema_version: i32,
+}
+/// A CES scorer: a score column of an EvalTable.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EvalTableScorer {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    /// A CES primitive value type: "boolean", "integer", "number", or "string".
+    #[prost(string, tag = "2")]
+    pub value_type: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LogEvalTableResponse {
+    #[prost(string, tag = "1")]
+    pub evaluation_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub evaluation_version_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub dataset_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub dataset_version_id: ::prost::alloc::string::String,
+    /// Set if the upload failed, in which case the IDs are unset.
+    #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
 }
 /// DownloadArtifact:
