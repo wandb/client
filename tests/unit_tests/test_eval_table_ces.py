@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
-from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -28,24 +26,6 @@ def default_eval_table_server_feature_enabled(monkeypatch):
     monkeypatch.setattr(
         "wandb.apis.public.service_api.ServiceApi.feature_enabled",
         lambda self, feature: True,
-    )
-
-
-@pytest.fixture(autouse=True)
-def coreweave_evaluations_module(monkeypatch):
-    client_module = ModuleType("coreweave_evaluations")
-    client_module.__path__ = []
-    types_module = ModuleType("coreweave_evaluations.types")
-    types_module.__path__ = []
-    image_module = ModuleType("coreweave_evaluations.types.wandb_image_v1_param")
-    image_module.WandbImageV1Param = dict
-
-    monkeypatch.setitem(sys.modules, "coreweave_evaluations", client_module)
-    monkeypatch.setitem(sys.modules, "coreweave_evaluations.types", types_module)
-    monkeypatch.setitem(
-        sys.modules,
-        "coreweave_evaluations.types.wandb_image_v1_param",
-        image_module,
     )
 
 

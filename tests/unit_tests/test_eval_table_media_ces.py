@@ -3,9 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -15,43 +14,6 @@ from wandb.errors import UsageError
 from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.data_types.eval_table import _media_ces, _writer, _writer_ces
 from wandb.sdk.interface.interface import InterfaceBase
-
-pytestmark = pytest.mark.usefixtures("coreweave_evaluations_module")
-
-
-@pytest.fixture
-def coreweave_evaluations_module(monkeypatch):
-    client_module = ModuleType("coreweave_evaluations")
-    client_module.__path__ = []
-    client_module.Client = MagicMock
-
-    types_module = ModuleType("coreweave_evaluations.types")
-    types_module.__path__ = []
-    audio_module = ModuleType("coreweave_evaluations.types.wandb_audio_v1_param")
-    audio_module.WandbAudioV1Param = dict
-    image_module = ModuleType("coreweave_evaluations.types.wandb_image_v1_param")
-    image_module.WandbImageV1Param = dict
-    video_module = ModuleType("coreweave_evaluations.types.wandb_video_v1_param")
-    video_module.WandbVideoV1Param = dict
-
-    monkeypatch.setitem(sys.modules, "coreweave_evaluations", client_module)
-    monkeypatch.setitem(sys.modules, "coreweave_evaluations.types", types_module)
-    monkeypatch.setitem(
-        sys.modules,
-        "coreweave_evaluations.types.wandb_audio_v1_param",
-        audio_module,
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "coreweave_evaluations.types.wandb_image_v1_param",
-        image_module,
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "coreweave_evaluations.types.wandb_video_v1_param",
-        video_module,
-    )
-    return client_module
 
 
 @pytest.fixture

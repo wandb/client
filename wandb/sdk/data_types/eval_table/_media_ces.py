@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from urllib.parse import quote
 
+from typing_extensions import Required, TypedDict
+
 from wandb import util
 from wandb.errors import UsageError
 from wandb.sdk.data_types.audio import Audio
@@ -35,14 +37,8 @@ from wandb.sdk.lib import filesystem
 from wandb.sdk.lib.paths import LogicalPath
 
 if TYPE_CHECKING:
-    from coreweave_evaluations.types.wandb_audio_v1_param import WandbAudioV1Param
-    from coreweave_evaluations.types.wandb_image_v1_param import WandbImageV1Param
-    from coreweave_evaluations.types.wandb_video_v1_param import WandbVideoV1Param
-
     from wandb.sdk.data_types.helper_types.classes import Classes
     from wandb.sdk.wandb_run import Run
-
-    _CESMediaExtensionValue = WandbImageV1Param | WandbAudioV1Param | WandbVideoV1Param
 
 
 # Stays under the 3.5 MiB ClickHouse single-row insert limit that Weave adopted
@@ -52,6 +48,52 @@ CESExtensionType = Literal["wandb-image", "wandb-audio", "wandb-video"]
 _MediaFieldSource = Literal["inputs", "outputs"]
 _DIGEST_PATH_LENGTH = 30
 _MediaT = TypeVar("_MediaT", bound=Media)
+
+
+class WandbImageV1(TypedDict, total=False):
+    """A V1 W&B image value in a CES evaluation input or output field."""
+
+    extension_type: Required[Literal["wandb-image"]]
+    format: Required[str]
+    schema_version: Required[Literal[1]]
+    sha256: Required[str]
+    size: Required[int]
+    uri: Required[str]
+    wb_media_type: Required[Literal["image-file"]]
+    boxes: dict[str, object]
+    caption: str
+    height: int
+    masks: dict[str, object]
+    width: int
+
+
+class WandbAudioV1(TypedDict, total=False):
+    """A V1 W&B audio value in a CES evaluation input or output field."""
+
+    extension_type: Required[Literal["wandb-audio"]]
+    schema_version: Required[Literal[1]]
+    sha256: Required[str]
+    size: Required[int]
+    uri: Required[str]
+    wb_media_type: Required[Literal["audio-file"]]
+    caption: str
+
+
+class WandbVideoV1(TypedDict, total=False):
+    """A V1 W&B video value in a CES evaluation input or output field."""
+
+    extension_type: Required[Literal["wandb-video"]]
+    schema_version: Required[Literal[1]]
+    sha256: Required[str]
+    size: Required[int]
+    uri: Required[str]
+    wb_media_type: Required[Literal["video-file"]]
+    caption: str
+    height: int
+    width: int
+
+
+_CESMediaExtensionValue = WandbImageV1 | WandbAudioV1 | WandbVideoV1
 
 
 @dataclass(frozen=True)
@@ -424,7 +466,7 @@ def _run_file_uri(run: Run, logical_path: str) -> str:
 
 
 def _rewrite_image_overlay_references(
-    extension_value: WandbImageV1Param,
+    extension_value: WandbImageV1,
     run: Run,
 ) -> None:
     """Replace local overlay paths with durable CES references."""
@@ -439,11 +481,8 @@ def _rewrite_image_overlay_references(
 def _image_ces_extension_value(
     image_json: dict[str, Any],
     run: Run,
-) -> WandbImageV1Param:
-    # Import lazily so the CES client only loads when CES media is serialized.
-    from coreweave_evaluations.types.wandb_image_v1_param import WandbImageV1Param
-
-    extension_value = WandbImageV1Param(
+) -> WandbImageV1:
+    extension_value = WandbImageV1(
         extension_type="wandb-image",
         format=image_json["format"],
         schema_version=1,
@@ -462,10 +501,8 @@ def _image_ces_extension_value(
 def _audio_ces_extension_value(
     media_json: dict[str, Any],
     run: Run,
-) -> WandbAudioV1Param:
-    from coreweave_evaluations.types.wandb_audio_v1_param import WandbAudioV1Param
-
-    value = WandbAudioV1Param(
+) -> WandbAudioV1:
+    value = WandbAudioV1(
         extension_type="wandb-audio",
         schema_version=1,
         sha256=media_json["sha256"],
@@ -481,10 +518,8 @@ def _audio_ces_extension_value(
 def _video_ces_extension_value(
     media_json: dict[str, Any],
     run: Run,
-) -> WandbVideoV1Param:
-    from coreweave_evaluations.types.wandb_video_v1_param import WandbVideoV1Param
-
-    value = WandbVideoV1Param(
+) -> WandbVideoV1:
+    value = WandbVideoV1(
         extension_type="wandb-video",
         schema_version=1,
         sha256=media_json["sha256"],
