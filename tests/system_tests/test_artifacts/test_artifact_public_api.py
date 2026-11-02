@@ -895,10 +895,14 @@ def test_fetch_artifact_paginates_membership_aliases(
     assert membership_by_name_responder.total_calls == 1
     query = membership_by_name_responder.requests[0].query
     assert "aliasesConnection" not in query
+    # `ArtifactMembershipFragment.aliases` always carries `@include(if: true)`
+    # (a workaround so the generated pydantic field defaults to `None`), so
+    # it's "aliases @include(if: true)", not "aliases {", that is omitted
+    # when pagination is enabled.
     if pagination_enabled:
-        assert "aliases {" not in query
+        assert "aliases @include(if: true)" not in query
     else:
-        assert "aliases {" in query
+        assert "aliases @include(if: true)" in query
     # Fetching the artifact never requests an alias page on its own,
     # whether or not pagination is enabled -- that's deferred until something
     # reads `.aliases`, which this test never does.
