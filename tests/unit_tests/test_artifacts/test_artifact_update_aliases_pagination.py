@@ -1,13 +1,4 @@
-"""Tests for lazy membership-aliases pagination in `Artifact._update()`.
-
-Mirrors `test_artifact_from_name.py`'s approach: a paginated
-`aliasesConnection` is requested instead of the unbounded flat `aliases`
-field once `ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION` is enabled, and only the
-first page is fetched eagerly -- remaining pages are deferred until
-something actually reads `.aliases`.
-"""
-
-from __future__ import annotations
+"""Tests for lazy membership aliases returned by Artifact._update()."""
 
 from unittest.mock import Mock
 
@@ -21,16 +12,7 @@ from wandb.sdk.artifacts._validators import FullArtifactPath
 from wandb.sdk.artifacts.artifact import Artifact
 
 
-def _feature_enabled(enabled_features):
-    """A `feature_enabled` side effect; defaults to False for every feature."""
-
-    def _enabled(feature, **_):
-        return bool(enabled_features.get(feature, False))
-
-    return _enabled
-
-
-def _artifact_fragment(*, entity="test-entity", project="test-project"):
+def _artifact_fragment():
     return ArtifactFragment(
         name="test-collection",
         version_index=0,
@@ -40,8 +22,8 @@ def _artifact_fragment(*, entity="test-entity", project="test-project"):
             "project": {
                 "id": "UHJvamVjdDox",
                 "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-                "name": project,
-                "entity": {"name": entity},
+                "name": "test-project",
+                "entity": {"name": "test-entity"},
             },
         },
         id="artifact-id",
@@ -61,27 +43,10 @@ def _artifact_fragment(*, entity="test-entity", project="test-project"):
     )
 
 
-def _artifact_fragment_dict(*, entity="test-entity", project="test-project"):
-    return _artifact_fragment(entity=entity, project=project).model_dump()
-
-
-def _logged_artifact(service_api, *, entity="test-entity", project="test-project"):
-    """A committed (non-draft) Artifact, ready to `._update()`."""
-    path = FullArtifactPath(prefix=entity, project=project, name="test-collection:v0")
-    artifact = Artifact._from_attrs(
-        path, _artifact_fragment(entity=entity, project=project), service_api
-    )
-    artifact._saved_aliases = list(artifact._aliases)
-    artifact._saved_tags = list(artifact.tags)
-    return artifact
-
-
-def _membership_dict(
-    *, entity="test-entity", project="test-project", version_index=3, aliases_connection
-):
-    return {
+def _membership(*, aliases=None):
+    membership = {
         "id": "membership-id",
-        "versionIndex": version_index,
+        "versionIndex": 3,
         "createdAt": "PLACEHOLDER",
         "artifactCollection": {
             "__typename": "ArtifactPortfolio",
@@ -89,150 +54,30 @@ def _membership_dict(
             "project": {
                 "id": "UHJvamVjdDox",
                 "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-                "name": project,
-                "entity": {"name": entity},
+                "name": "test-project",
+                "entity": {"name": "test-entity"},
             },
         },
-        "artifact": _artifact_fragment_dict(entity=entity, project=project),
-        "aliasesConnection": aliases_connection,
+        "artifact": _artifact_fragment().model_dump(),
     }
+    if aliases is not None:
+        membership["aliases"] = [
+            {"id": f"alias-{alias}", "alias": alias} for alias in aliases
+        ]
+    return membership
 
 
-def test_update_feature_disabled_uses_flat_aliases(mocker):
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(
-        {pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD: True}
-    )
-    artifact = _logged_artifact(service_api)
-
-    membership = _membership_dict(aliases_connection=None)
-    membership.pop("aliasesConnection")
-    membership["aliases"] = [{"id": "alias-id", "alias": "best"}]
-    service_api.execute_graphql.return_value = UpdateArtifact.model_validate(
-        {
-            "result": {
-                "artifact": _artifact_fragment_dict(),
-                "artifactMembership": membership,
-            }
-        }
-    )
-    assign_attrs = mocker.patch.object(Artifact, "_assign_attrs")
-
-    artifact._update()
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert "aliasesConnection" in kwargs["omit_fields"]
-    assert "aliases" not in kwargs["omit_fields"]
-
-    _, assign_attrs_kwargs = assign_attrs.call_args
-    assert assign_attrs_kwargs["membership_aliases"] is None
-    assert assign_attrs_kwargs["aliases_paginator"] is None
-
-
-def test_update_feature_enabled_single_page(mocker):
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(
-        {
-            pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD: True,
-            pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION: True,
-        }
-    )
-    artifact = _logged_artifact(service_api)
-
-    membership = _membership_dict(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "edges": [{"node": {"id": "alias-id", "alias": "best"}}],
-        },
-    )
-    service_api.execute_graphql.return_value = UpdateArtifact.model_validate(
-        {
-            "result": {
-                "artifact": _artifact_fragment_dict(),
-                "artifactMembership": membership,
-            }
-        }
-    )
-    assign_attrs = mocker.patch.object(Artifact, "_assign_attrs")
-
-    artifact._update()
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert "includeAliases" in kwargs["omit_variables"]
-    assert "aliases" in kwargs["omit_fields"]
-    assert "aliasesConnection" not in kwargs["omit_fields"]
-
-    service_api.execute_graphql.assert_called_once()
-    _, assign_attrs_kwargs = assign_attrs.call_args
-    assert assign_attrs_kwargs["membership_aliases"] == ["best"]
-    assert assign_attrs_kwargs["aliases_paginator"] is None
-
-
-def test_update_feature_enabled_defers_remaining_pages(mocker):
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(
-        {
-            pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD: True,
-            pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION: True,
-        }
-    )
-    artifact = _logged_artifact(service_api)
-
-    membership = _membership_dict(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-            "edges": [{"node": {"id": "alias-id", "alias": "best"}}],
-        },
-    )
-    service_api.execute_graphql.return_value = UpdateArtifact.model_validate(
-        {
-            "result": {
-                "artifact": _artifact_fragment_dict(),
-                "artifactMembership": membership,
-            }
-        }
-    )
-    assign_attrs = mocker.patch.object(Artifact, "_assign_attrs")
-
-    artifact._update()
-
-    service_api.execute_graphql.assert_called_once()
-    _, assign_attrs_kwargs = assign_attrs.call_args
-    assert assign_attrs_kwargs["membership_aliases"] == ["best"]
-    assert assign_attrs_kwargs["aliases_paginator"] is not None
-
-
-def test_update_no_membership_in_response_skips_pagination(mocker):
-    """Old servers that don't return `artifactMembership` at all."""
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(
-        {pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION: True}
-    )
-    artifact = _logged_artifact(service_api)
-
-    service_api.execute_graphql.return_value = UpdateArtifact.model_validate(
-        {"result": {"artifact": _artifact_fragment_dict()}}
-    )
-    assign_attrs = mocker.patch.object(Artifact, "_assign_attrs")
-
-    artifact._update()
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert "artifactMembership" in kwargs["omit_fields"]
-
-    _, assign_attrs_kwargs = assign_attrs.call_args
-    assert assign_attrs_kwargs["membership_aliases"] is None
-    assert assign_attrs_kwargs["aliases_paginator"] is None
-
-
-def _second_page_response(alias="second-page"):
+def _alias_page(aliases):
     return ArtifactMembershipAliases.model_validate(
         {
             "project": {
                 "artifactCollectionMembership": {
                     "aliasesConnection": {
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "edges": [{"node": {"id": "alias-id", "alias": alias}}],
+                        "edges": [
+                            {"node": {"id": f"alias-{alias}", "alias": alias}}
+                            for alias in aliases
+                        ],
                     }
                 }
             }
@@ -240,46 +85,67 @@ def _second_page_response(alias="second-page"):
     )
 
 
-def test_update_aliases_property_lazily_fetches_remaining_pages():
-    """Only reading `.aliases` after `_update()` should fetch page 2."""
+def _setup(*, pagination_enabled, membership_enabled, aliases=None):
     service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(
-        {
-            pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD: True,
-            pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION: True,
-        }
+    enabled = {
+        pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD: membership_enabled,
+        pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION: pagination_enabled,
+    }
+    service_api.feature_enabled.side_effect = lambda feature, **_: enabled.get(
+        feature, False
     )
-    artifact = _logged_artifact(service_api)
+    result = {"artifact": _artifact_fragment().model_dump()}
+    if membership_enabled:
+        result["artifactMembership"] = _membership(aliases=aliases)
+    service_api.execute_graphql.return_value = UpdateArtifact.model_validate(
+        {"result": result}
+    )
+    path = FullArtifactPath(
+        prefix="test-entity", project="test-project", name="test-collection:v0"
+    )
+    artifact = Artifact._from_attrs(path, _artifact_fragment(), service_api)
+    return artifact, service_api
 
-    membership = _membership_dict(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-            "edges": [{"node": {"id": "alias-id", "alias": "first-page"}}],
-        },
+
+def test_update_uses_flat_aliases_when_pagination_disabled():
+    artifact, service_api = _setup(
+        pagination_enabled=False, membership_enabled=True, aliases=["best"]
     )
-    update_response = UpdateArtifact.model_validate(
-        {
-            "result": {
-                "artifact": _artifact_fragment_dict(),
-                "artifactMembership": membership,
-            }
-        }
-    )
-    service_api.execute_graphql.side_effect = [
-        update_response,
-        _second_page_response(),
-    ]
 
     artifact._update()
 
-    # `_update()` only cost one request; the continuation page isn't fetched yet.
+    assert artifact.aliases == ["best"]
     service_api.execute_graphql.assert_called_once()
+    kwargs = service_api.execute_graphql.call_args.kwargs
+    assert "aliases" not in kwargs["omit_fields"]
+    assert kwargs["omit_variables"] is None
 
-    aliases = artifact.aliases
 
+def test_update_defers_all_aliases_until_first_read():
+    artifact, service_api = _setup(pagination_enabled=True, membership_enabled=True)
+    response = service_api.execute_graphql.return_value
+    service_api.execute_graphql.side_effect = [response, _alias_page(["v3", "best"])]
+
+    artifact._update()
+
+    assert service_api.execute_graphql.call_count == 1
+    assert artifact._aliases is None
+    assert artifact.version == "v3"
+    assert "aliases" in service_api.execute_graphql.call_args.kwargs["omit_fields"]
+    assert artifact.aliases == ["best"]
     assert service_api.execute_graphql.call_count == 2
-    assert set(aliases) == {"first-page", "second-page"}
+    alias_vars = service_api.execute_graphql.call_args.kwargs["variables"]
+    assert alias_vars["name"] == "test-collection:v3"
 
-    # A second read doesn't re-fetch anything.
-    assert artifact.aliases == aliases
-    assert service_api.execute_graphql.call_count == 2
+
+def test_update_without_membership_feature_uses_artifact_payload():
+    artifact, service_api = _setup(pagination_enabled=True, membership_enabled=False)
+
+    artifact._update()
+
+    service_api.execute_graphql.assert_called_once()
+    assert artifact.aliases == []
+    assert (
+        "artifactMembership"
+        in service_api.execute_graphql.call_args.kwargs["omit_fields"]
+    )

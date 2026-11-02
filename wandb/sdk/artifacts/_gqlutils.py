@@ -215,7 +215,7 @@ def link_artifact_gql_options(
     when no membership is passed in.
     """
     omit_fields = omit_artifact_fields(service_api)
-    omit_variables = {"includeAliases", "perPage"}
+    omit_variables = {"includeAliases"}
 
     if not service_api.feature_enabled(
         ServerFeature.ARTIFACT_MEMBERSHIP_IN_LINK_ARTIFACT_RESPONSE
@@ -226,15 +226,10 @@ def link_artifact_gql_options(
     if service_api.feature_enabled(
         ServerFeature.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION
     ):
-        # `aliases` names both the membership's own unbounded field and the
-        # nested artifact's `@include(if: $includeAliases)` field; omitting
-        # it by name drops both, so `$includeAliases` goes unused too. The
-        # membership's aliases are fetched page by page instead, via
-        # `aliasesConnection`/`$perPage`.
+        # The membership's aliases are fetched on first access to
+        # `Artifact.aliases`, so omit the unbounded field here.
         omit_fields.add("aliases")
-        omit_variables.discard("perPage")
     else:
-        omit_fields.add("aliasesConnection")
         omit_variables.discard("includeAliases")
         gql_vars["includeAliases"] = False
 
@@ -252,7 +247,7 @@ def update_artifact_gql_options(service_api: ServiceApi) -> tuple[set[str], set[
     over the artifact's own `aliases` -- is actually in the response.
     """
     omit_fields = omit_artifact_fields(service_api)
-    omit_variables = {"perPage"}
+    omit_variables: set[str] = set()
 
     if not service_api.feature_enabled(
         ServerFeature.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD
@@ -268,9 +263,6 @@ def update_artifact_gql_options(service_api: ServiceApi) -> tuple[set[str], set[
         # fine now that a membership is present and takes priority.
         omit_fields.add("aliases")
         omit_variables.add("includeAliases")
-        omit_variables.discard("perPage")
-    else:
-        omit_fields.add("aliasesConnection")
 
     return omit_fields, omit_variables
 

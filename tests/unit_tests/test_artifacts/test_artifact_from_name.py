@@ -7,141 +7,26 @@ from wandb.sdk.artifacts._generated import (
     ArtifactMembershipAliases,
     ArtifactMembershipByName,
 )
-from wandb.sdk.artifacts._validators import FullArtifactPath
+from wandb.sdk.artifacts._validators import FullArtifactPath, LinkArtifactFields
 from wandb.sdk.artifacts.artifact import Artifact
 
 _PATH = FullArtifactPath(
-    prefix="test-entity", project="test-project", name="test-collection:v0"
+    prefix="test-entity", project="test-project", name="test-collection:latest"
 )
 
 
-def _membership_data(*, flat_aliases=None, aliases_connection=None):
-    data = {
-        "id": "PLACEHOLDER",
-        "versionIndex": 1,
-        "createdAt": "PLACEHOLDER",
-        "artifactCollection": {
-            "__typename": "ArtifactPortfolio",
-            "name": "test-collection",
-            "project": {
-                "id": "UHJvamVjdDox",
-                "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-                "name": "test-project",
-                "entity": {"name": "test-entity"},
-            },
-        },
-        "artifact": None,
-    }
-    # Omit the key entirely (rather than an empty list) when flat_aliases isn't
-    # given, mirroring a real server response when `aliases` is stripped from
-    # the request via `omit_fields`.
-    if flat_aliases is not None:
-        data["aliases"] = [{"id": "PLACEHOLDER", "alias": a} for a in flat_aliases]
-    if aliases_connection is not None:
-        data["aliasesConnection"] = aliases_connection
-    return data
-
-
-def _membership_by_name_response(**kwargs):
-    return ArtifactMembershipByName.model_validate(
-        {"project": {"artifactCollectionMembership": _membership_data(**kwargs)}}
-    )
-
-
-def _feature_enabled(enabled: bool):
-    return lambda feature, **_: (
-        feature == pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION and enabled
-    )
-
-
-def test_from_name_feature_disabled_uses_flat_aliases(mocker):
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(False)
-    service_api.execute_graphql.return_value = _membership_by_name_response(
-        flat_aliases=["v0", "best"]
-    )
-    from_membership = mocker.patch.object(Artifact, "_from_membership")
-
-    Artifact._from_name(path=_PATH, service_api=service_api)
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert kwargs["omit_variables"] == {"perPage"}
-    assert "aliasesConnection" in kwargs["omit_fields"]
-    assert "aliases" not in kwargs["omit_fields"]
-
-    _, from_membership_kwargs = from_membership.call_args
-    assert from_membership_kwargs["membership_aliases"] is None
-    assert from_membership_kwargs["aliases_paginator"] is None
-
-
-def test_from_name_feature_enabled_single_page(mocker):
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(True)
-    # No `flat_aliases`: a real server omits the unbounded `aliases` field
-    # from the response entirely once we stop requesting it.
-    service_api.execute_graphql.return_value = _membership_by_name_response(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "edges": [{"node": {"id": "PLACEHOLDER", "alias": "v0"}}],
-        },
-    )
-    from_membership = mocker.patch.object(Artifact, "_from_membership")
-
-    Artifact._from_name(path=_PATH, service_api=service_api)
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert kwargs["omit_variables"] == {"includeAliases"}
-    assert "aliasesConnection" not in kwargs["omit_fields"]
-    # The whole point of pagination: never request the unbounded flat field
-    # once the paginated connection is available.
-    assert "aliases" in kwargs["omit_fields"]
-
-    service_api.execute_graphql.assert_called_once()
-    _, from_membership_kwargs = from_membership.call_args
-    assert from_membership_kwargs["membership_aliases"] == ["v0"]
-    assert from_membership_kwargs["aliases_paginator"] is None
-
-
-def test_from_name_feature_enabled_defers_remaining_pages(mocker):
-    """`_from_name` should not fetch past the first page on its own.
-
-    Remaining pages are only worth fetching if something actually reads
-    `.aliases`; `_from_name` itself must not pay for that eagerly.
-    """
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(True)
-
-    first_response = _membership_by_name_response(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-            "edges": [{"node": {"id": "PLACEHOLDER", "alias": "v0"}}],
-        },
-    )
-    service_api.execute_graphql.return_value = first_response
-    from_membership = mocker.patch.object(Artifact, "_from_membership")
-
-    Artifact._from_name(path=_PATH, service_api=service_api)
-
-    # Exactly one request: the continuation page is never fetched here.
-    service_api.execute_graphql.assert_called_once()
-    _, from_membership_kwargs = from_membership.call_args
-    assert from_membership_kwargs["membership_aliases"] == ["v0"]
-    assert from_membership_kwargs["aliases_paginator"] is not None
-
-
-def _full_membership_data(*, aliases_connection):
-    """A membership payload with enough real data to skip `_from_membership`."""
-    artifact_fragment = ArtifactFragment(
+def _membership_data(*, flat_aliases=None, version_index=3):
+    artifact = ArtifactFragment(
         name="test-collection",
-        version_index=0,
+        version_index=version_index,
         artifact_type={"name": "dataset"},
         artifact_sequence={
             "name": "test-collection",
             "project": {
                 "id": "UHJvamVjdDox",
                 "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-                "name": "test-project",
-                "entity": {"name": "test-entity"},
+                "name": "source-project",
+                "entity": {"name": "source-entity"},
             },
         },
         id="PLACEHOLDER",
@@ -159,173 +44,190 @@ def _full_membership_data(*, aliases_connection):
         updated_at=None,
         history_step=None,
     ).model_dump()
-
-    data = _membership_data(aliases_connection=aliases_connection)
-    data["artifact"] = artifact_fragment
-    data["artifactCollection"] = {
-        "__typename": "ArtifactPortfolio",
-        "name": "test-collection",
-        "project": {
-            "id": "UHJvamVjdDox",
-            "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-            "name": "test-project",
-            "entity": {"name": "test-entity"},
-        },
-    }
-    return data
-
-
-def test_aliases_property_lazily_fetches_remaining_pages():
-    """Fetching the artifact shouldn't pay for pages nothing asked for.
-
-    Only touching `.aliases` should trigger the continuation request; the
-    fetch that constructs the `Artifact` must not do it on its own.
-    """
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(True)
-
-    first_response = ArtifactMembershipByName.model_validate(
-        {
+    membership = {
+        "id": "PLACEHOLDER",
+        "versionIndex": version_index,
+        "createdAt": "PLACEHOLDER",
+        "artifactCollection": {
+            "__typename": "ArtifactPortfolio",
+            "name": "test-collection",
             "project": {
-                "artifactCollectionMembership": _full_membership_data(
-                    aliases_connection={
-                        "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-                        "edges": [
-                            {"node": {"id": "PLACEHOLDER", "alias": "first-page"}}
-                        ],
-                    }
-                )
-            }
-        }
+                "id": "UHJvamVjdDox",
+                "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
+                "name": "canonical-project",
+                "entity": {"name": "canonical-entity"},
+            },
+        },
+        "artifact": artifact,
+    }
+    if flat_aliases is not None:
+        membership["aliases"] = [
+            {"id": "PLACEHOLDER", "alias": alias} for alias in flat_aliases
+        ]
+    return ArtifactMembershipByName.model_validate(
+        {"project": {"artifactCollectionMembership": membership}}
     )
-    second_response = ArtifactMembershipAliases.model_validate(
+
+
+def _alias_page(aliases, *, has_next_page=False, end_cursor=None):
+    return ArtifactMembershipAliases.model_validate(
         {
             "project": {
                 "artifactCollectionMembership": {
                     "aliasesConnection": {
-                        "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "edges": [{"node": {"id": "PLACEHOLDER", "alias": "best"}}],
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                        "edges": [
+                            {"node": {"id": "PLACEHOLDER", "alias": alias}}
+                            for alias in aliases
+                        ],
                     }
                 }
             }
         }
     )
-    service_api.execute_graphql.side_effect = [first_response, second_response]
+
+
+def _service_api(*responses, pagination_enabled=True):
+    service_api = Mock()
+    service_api.feature_enabled.side_effect = lambda feature, **_: (
+        feature == pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION and pagination_enabled
+    )
+    pending = iter(responses)
+    service_api.variable_snapshots = []
+
+    def execute_graphql(*args, **kwargs):
+        service_api.variable_snapshots.append(dict(kwargs.get("variables") or {}))
+        result = next(pending)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    service_api.execute_graphql.side_effect = execute_graphql
+    return service_api
+
+
+def test_from_name_uses_flat_aliases_on_old_server():
+    service_api = _service_api(
+        _membership_data(flat_aliases=["v3", "best"]), pagination_enabled=False
+    )
 
     artifact = Artifact._from_name(path=_PATH, service_api=service_api)
 
-    # Constructing the artifact only cost the first page.
+    assert artifact.aliases == ["best"]
     service_api.execute_graphql.assert_called_once()
-
-    aliases = artifact.aliases
-
-    # Reading `.aliases` is what triggers the continuation request.
-    assert service_api.execute_graphql.call_count == 2
-    assert set(aliases) == {"first-page", "best"}
-
-    # A second read doesn't re-fetch anything.
-    assert artifact.aliases == aliases
-    assert service_api.execute_graphql.call_count == 2
+    assert "aliases" not in service_api.execute_graphql.call_args.kwargs["omit_fields"]
 
 
-def test_from_name_continuation_uses_membership_identity_not_request_path(mocker):
-    """The continuation paginator must resume against the membership actually
-
-    fetched, not the (possibly alias-based) name the caller requested.
-
-    Regression test: an alias like `:latest` can move to point at a
-    different version between this fetch and a later continuation fetch.
-    Resuming with the original alias-based name and entity/project could
-    silently apply this cursor to a different membership (e.g. the new
-    target of a moved alias, or the pre-migration project for a
-    migrated-registry redirect).
-    """
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(True)
-
-    # Deliberately an alias-based path, not a version -- this is exactly the
-    # case where the lookup name can later point somewhere else.
-    path = FullArtifactPath(
-        prefix="test-entity", project="test-project", name="test-collection:latest"
+def test_from_name_defers_all_alias_pages_and_uses_canonical_identity():
+    service_api = _service_api(
+        _membership_data(),
+        _alias_page(["v3", "first"], has_next_page=True, end_cursor="cursor-1"),
+        _alias_page(["best"]),
     )
-    data = _membership_data(
-        aliases_connection={
-            "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-            "edges": [{"node": {"id": "PLACEHOLDER", "alias": "v3"}}],
-        },
-    )
-    data["versionIndex"] = 3
-    # The membership's own canonical project/entity differ from the request
-    # path, e.g. a migrated-registry redirect -- the continuation must use
-    # these, not the request path's.
-    data["artifactCollection"]["project"]["name"] = "canonical-project"
-    data["artifactCollection"]["project"]["entity"]["name"] = "canonical-entity"
-    service_api.execute_graphql.return_value = ArtifactMembershipByName.model_validate(
-        {"project": {"artifactCollectionMembership": data}}
-    )
-    from_membership = mocker.patch.object(Artifact, "_from_membership")
 
-    Artifact._from_name(path=path, service_api=service_api)
+    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
 
-    _, from_membership_kwargs = from_membership.call_args
-    paginator = from_membership_kwargs["aliases_paginator"]
-    assert paginator is not None
-    assert paginator.variables["name"] == "test-collection:v3"
-    assert paginator.variables["entity"] == "canonical-entity"
-    assert paginator.variables["project"] == "canonical-project"
+    assert service_api.execute_graphql.call_count == 1
+    assert artifact._aliases is None
+    assert artifact._saved_aliases is None
+    assert "aliases" in service_api.execute_graphql.call_args.kwargs["omit_fields"]
+
+    assert artifact.aliases == ["first", "best"]
+    assert service_api.execute_graphql.call_count == 3
+    first_alias_vars = service_api.variable_snapshots[1]
+    assert first_alias_vars["name"] == "test-collection:v3"
+    assert first_alias_vars["entity"] == "canonical-entity"
+    assert first_alias_vars["project"] == "canonical-project"
+    assert first_alias_vars["cursor"] is None
+    assert first_alias_vars["perPage"] == 1000
+    assert artifact._saved_aliases == ["first", "best"]
+    assert artifact.aliases == ["first", "best"]
+    assert service_api.execute_graphql.call_count == 3
 
 
-def test_aliases_property_retries_after_failed_continuation_fetch():
-    """A transient error fetching a continuation page must not discard it.
-
-    Regression test: clearing `_aliases_paginator` before iteration succeeds
-    would permanently and silently drop access to not-yet-fetched aliases
-    after any transient error -- a retried `.aliases` read would just return
-    whatever was already loaded, with no way to try again.
-    """
-    service_api = Mock()
-    service_api.feature_enabled.side_effect = _feature_enabled(True)
-
-    first_response = ArtifactMembershipByName.model_validate(
-        {
-            "project": {
-                "artifactCollectionMembership": _full_membership_data(
-                    aliases_connection={
-                        "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-                        "edges": [
-                            {"node": {"id": "PLACEHOLDER", "alias": "first-page"}}
-                        ],
-                    }
-                )
-            }
-        }
-    )
-    second_response = ArtifactMembershipAliases.model_validate(
-        {
-            "project": {
-                "artifactCollectionMembership": {
-                    "aliasesConnection": {
-                        "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "edges": [{"node": {"id": "PLACEHOLDER", "alias": "best"}}],
-                    }
-                }
-            }
-        }
-    )
-    service_api.execute_graphql.side_effect = [
-        first_response,
+def test_aliases_retry_starts_over_after_failed_later_page():
+    service_api = _service_api(
+        _membership_data(),
+        _alias_page(["first"], has_next_page=True, end_cursor="cursor-1"),
         TimeoutError("transient network error"),
-        second_response,
-    ]
-
+        _alias_page(["first"], has_next_page=True, end_cursor="cursor-1"),
+        _alias_page(["best"]),
+    )
     artifact = Artifact._from_name(path=_PATH, service_api=service_api)
 
     with pytest.raises(TimeoutError):
-        artifact.aliases  # noqa: B018 (property access is the point)
+        _ = artifact.aliases
 
-    # The failed fetch must not have discarded the pending paginator.
-    assert artifact._aliases_paginator is not None
+    assert artifact._aliases is None
+    assert artifact.aliases == ["first", "best"]
+    assert service_api.variable_snapshots[3]["cursor"] is None
 
-    # Retrying succeeds and returns the complete set.
-    assert set(artifact.aliases) == {"first-page", "best"}
-    assert artifact._aliases_paginator is None
+
+def test_aliases_setter_fetches_before_replacing():
+    service_api = _service_api(_membership_data(), _alias_page(["old"]))
+    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+
+    artifact.aliases = ["new"]
+
+    assert artifact._saved_aliases == ["old"]
+    assert artifact.aliases == ["new"]
+    assert service_api.execute_graphql.call_count == 2
+
+
+def test_copy_as_link_does_not_inherit_source_pending_aliases():
+    service_api = _service_api(_membership_data(), _alias_page(["linked"]))
+    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+    linked = artifact._create_linked_artifact_using_source_artifact(
+        LinkArtifactFields(
+            entity_name="linked-entity",
+            project_name="linked-project",
+            name="linked-collection:v7",
+            version="v7",
+            aliases=["known"],
+            linked_at="PLACEHOLDER",
+        )
+    )
+
+    assert linked.aliases == ["known"]
+    assert service_api.execute_graphql.call_count == 1
+    assert artifact._aliases is None
+
+
+def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
+    service_api = _service_api(
+        _membership_data(),
+        Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
+    )
+    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+    add_aliases = mocker.patch.object(artifact, "_add_aliases")
+    delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
+    mocker.patch.object(artifact, "_assign_attrs")
+
+    artifact._update()
+
+    assert service_api.execute_graphql.call_count == 2
+    add_aliases.assert_not_called()
+    delete_aliases.assert_not_called()
+    assert artifact._aliases is None
+
+
+def test_update_diffs_explicit_alias_edit_against_fetched_aliases(mocker):
+    service_api = _service_api(
+        _membership_data(),
+        _alias_page(["old"]),
+        Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
+    )
+    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+    artifact.aliases = ["new"]
+    add_aliases = mocker.patch.object(artifact, "_add_aliases")
+    delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
+    mocker.patch.object(artifact, "_assign_attrs")
+
+    artifact._update()
+
+    assert add_aliases.call_args.args[0] == {"new"}
+    assert delete_aliases.call_args.args[0] == {"old"}
+    assert service_api.execute_graphql.call_count == 3

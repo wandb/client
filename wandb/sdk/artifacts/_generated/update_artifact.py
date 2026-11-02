@@ -7,12 +7,7 @@ from pydantic import Field
 
 from wandb._pydantic import GQLResult
 
-from .fragments import (
-    ArtifactAliasFragment,
-    ArtifactFragment,
-    ArtifactMembershipFragment,
-    PageInfoFragment,
-)
+from .fragments import ArtifactFragment, ArtifactMembershipFragment
 
 
 class UpdateArtifact(GQLResult):
@@ -21,28 +16,10 @@ class UpdateArtifact(GQLResult):
 
 class UpdateArtifactResult(GQLResult):
     artifact: ArtifactFragment
-    artifact_membership: UpdateArtifactResultArtifactMembership | None = Field(
+    artifact_membership: ArtifactMembershipFragment | None = Field(
         alias="artifactMembership", default=None
     )
 
 
-class UpdateArtifactResultArtifactMembership(ArtifactMembershipFragment):
-    aliases_connection: (
-        UpdateArtifactResultArtifactMembershipAliasesConnection | None
-    ) = Field(alias="aliasesConnection", default=None)
-
-
-class UpdateArtifactResultArtifactMembershipAliasesConnection(GQLResult):
-    page_info: PageInfoFragment = Field(alias="pageInfo")
-    edges: list[UpdateArtifactResultArtifactMembershipAliasesConnectionEdges]
-
-
-class UpdateArtifactResultArtifactMembershipAliasesConnectionEdges(GQLResult):
-    node: ArtifactAliasFragment | None
-
-
 UpdateArtifact.model_rebuild()
 UpdateArtifactResult.model_rebuild()
-UpdateArtifactResultArtifactMembership.model_rebuild()
-UpdateArtifactResultArtifactMembershipAliasesConnection.model_rebuild()
-UpdateArtifactResultArtifactMembershipAliasesConnectionEdges.model_rebuild()

@@ -1,8 +1,7 @@
 """Tests for lazy membership-aliases pagination in `Artifact._update()`.
 
-`UpdateArtifact` can return `artifactMembership` directly, and that
-membership's `aliasesConnection` lets the SDK fetch only the first page of
-aliases instead of the unbounded flat `aliases` field -- mirroring the
+`UpdateArtifact` can return `artifactMembership` directly. Its aliases are
+fetched only when requested, through the paginated connection, mirroring the
 `ArtifactMembershipByName` pagination covered in
 `tests/unit_tests/test_artifacts/test_artifact_from_name.py`. This test uses
 the real create/commit/save flow against the local test backend and stubs
@@ -82,7 +81,6 @@ def _membership_dict(
     collection: str,
     version_index: int,
     artifact: dict[str, Any],
-    aliases_connection: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "id": membership_id,
@@ -92,7 +90,6 @@ def _membership_dict(
             entity=entity, project=project, collection=collection
         ),
         "artifact": artifact,
-        "aliasesConnection": aliases_connection,
     }
 
 
@@ -151,7 +148,6 @@ def test_update_resolves_membership_aliases(
             collection=collection,
             version_index=5,
             artifact=bare_artifact_dict,
-            aliases_connection=_aliases_connection(["first-page"], has_next_page=True),
         )
     else:
         membership = {
@@ -177,13 +173,13 @@ def test_update_resolves_membership_aliases(
     )
     wandb_backend_spy.stub_gql(gql.Matcher(operation="UpdateArtifact"), update_response)
 
-    continuation_response = gql.Constant(
+    aliases_response = gql.Constant(
         content={
             "data": {
                 "project": {
                     "artifactCollectionMembership": {
                         "aliasesConnection": _aliases_connection(
-                            ["second-page"], has_next_page=False
+                            ["first-page", "second-page"], has_next_page=False
                         )
                     }
                 }
@@ -191,7 +187,7 @@ def test_update_resolves_membership_aliases(
         }
     )
     wandb_backend_spy.stub_gql(
-        gql.Matcher(operation="ArtifactMembershipAliases"), continuation_response
+        gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
 
     artifact.description = "updated description"
@@ -202,17 +198,17 @@ def test_update_resolves_membership_aliases(
     assert artifact.version == "v5"
 
     if pagination_enabled:
-        assert "aliasesConnection" in sent_query
+        assert "aliasesConnection" not in sent_query
         assert "aliases {" not in sent_query
-        assert continuation_response.total_calls == 0
+        assert aliases_response.total_calls == 0
 
         assert set(artifact.aliases) == {"first-page", "second-page"}
-        assert continuation_response.total_calls == 1
+        assert aliases_response.total_calls == 1
 
         # A second read doesn't re-fetch anything.
         assert set(artifact.aliases) == {"first-page", "second-page"}
-        assert continuation_response.total_calls == 1
+        assert aliases_response.total_calls == 1
     else:
         assert "aliasesConnection" not in sent_query
         assert "flat-alias" in artifact.aliases
-        assert continuation_response.total_calls == 0
+        assert aliases_response.total_calls == 0
