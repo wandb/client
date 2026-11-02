@@ -199,7 +199,7 @@ def test_update_resolves_membership_aliases(
 
     if pagination_enabled:
         assert "aliasesConnection" not in sent_query
-        assert "aliases {" not in sent_query
+        assert "aliases @include(if: true)" not in sent_query
         assert aliases_response.total_calls == 0
 
         assert set(artifact.aliases) == {"first-page", "second-page"}

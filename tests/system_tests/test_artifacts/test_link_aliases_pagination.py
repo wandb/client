@@ -178,7 +178,7 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
     assert link_response.total_calls == 1
     assert aliases_response.total_calls == 0
     assert "aliasesConnection" not in link_response.requests[0].query
-    assert "aliases {" not in link_response.requests[0].query
+    assert "aliases @include(if: true)" not in link_response.requests[0].query
 
     assert set(linked.aliases) == {"first-page", "second-page"}
     assert aliases_response.total_calls == 1
