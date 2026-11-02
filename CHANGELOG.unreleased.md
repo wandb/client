@@ -39,3 +39,4 @@ Section headings should be at level 3 (e.g. `### Added`).
 - Reduced artifact upload request batch sizes to lower the risk of backend timeouts when logging artifacts with many files (@pinglei in https://github.com/wandb/wandb/pull/13198).
 - `File.download()` no longer fails with `invalid URL escape` when a file name contains a `%` (@jacobromero in https://github.com/wandb/wandb/pull/13177)
 - `wandb.watch` histograms are now correctly displayed for parameters and gradients where all values are identical (@jacobromero in https://github.com/wandb/wandb/pull/13260)
+- `wandb sync` of an offline run now uploads the run's artifacts, such as tables and models, to the entity and project the run is synced to, including with `--entity` and `--project`; they failed with a 404 since the Go sync became the default, and `wandb sync --include-synced` uploads them for runs synced before (@pinglei in https://github.com/wandb/wandb/pull/13280)
