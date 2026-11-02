@@ -1,8 +1,7 @@
 """Tests for lazy membership-aliases pagination in `Artifact.link()`.
 
-`LinkArtifact` can return `artifactMembership` directly, and that
-membership's `aliasesConnection` lets the SDK fetch only the first page of
-aliases instead of the unbounded flat `aliases` field -- mirroring the
+`LinkArtifact` can return `artifactMembership` directly. Its aliases are
+fetched only when requested, through the paginated connection, mirroring the
 `ArtifactMembershipByName` pagination covered in
 `tests/unit_tests/test_artifacts/test_artifact_from_name.py`. This test uses
 the real create/commit/link flow against the local test backend and stubs
@@ -81,7 +80,6 @@ def _membership_dict(
     collection: str,
     version_index: int,
     artifact: dict[str, Any],
-    aliases_connection: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "id": membership_id,
@@ -91,7 +89,6 @@ def _membership_dict(
             entity=entity, project=project, collection=collection
         ),
         "artifact": artifact,
-        "aliasesConnection": aliases_connection,
     }
 
 
@@ -114,9 +111,7 @@ def _stub_server_features(
     )
 
 
-def test_link_defers_remaining_membership_aliases(
-    user, wandb_backend_spy: WandbBackendSpy
-):
+def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBackendSpy):
     gql = wandb_backend_spy.gql
 
     # `feature_enabled()` caches the server's feature map for the sidecar's
@@ -149,7 +144,6 @@ def test_link_defers_remaining_membership_aliases(
             project=project,
             collection="target-collection",
         ),
-        aliases_connection=_aliases_connection(["first-page"], has_next_page=True),
     )
     link_response = gql.Constant(
         content={
@@ -160,13 +154,13 @@ def test_link_defers_remaining_membership_aliases(
     )
     wandb_backend_spy.stub_gql(gql.Matcher(operation="LinkArtifact"), link_response)
 
-    continuation_response = gql.Constant(
+    aliases_response = gql.Constant(
         content={
             "data": {
                 "project": {
                     "artifactCollectionMembership": {
                         "aliasesConnection": _aliases_connection(
-                            ["second-page"], has_next_page=False
+                            ["first-page", "second-page"], has_next_page=False
                         )
                     }
                 }
@@ -174,21 +168,21 @@ def test_link_defers_remaining_membership_aliases(
         }
     )
     wandb_backend_spy.stub_gql(
-        gql.Matcher(operation="ArtifactMembershipAliases"), continuation_response
+        gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
 
     linked = artifact.link(f"{entity}/{project}/target-collection")
 
-    # Linking only cost one request against `LinkArtifact`; the continuation
-    # page for the membership's remaining aliases isn't fetched yet.
+    # Linking only cost one request against `LinkArtifact`; no alias page
+    # is fetched until the returned artifact's aliases are read.
     assert link_response.total_calls == 1
-    assert continuation_response.total_calls == 0
-    assert "aliasesConnection" in link_response.requests[0].query
+    assert aliases_response.total_calls == 0
+    assert "aliasesConnection" not in link_response.requests[0].query
     assert "aliases {" not in link_response.requests[0].query
 
     assert set(linked.aliases) == {"first-page", "second-page"}
-    assert continuation_response.total_calls == 1
+    assert aliases_response.total_calls == 1
 
     # A second read doesn't re-fetch anything.
     assert set(linked.aliases) == {"first-page", "second-page"}
-    assert continuation_response.total_calls == 1
+    assert aliases_response.total_calls == 1

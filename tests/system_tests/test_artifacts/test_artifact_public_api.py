@@ -774,12 +774,12 @@ def test_fetch_artifact_paginates_membership_aliases(
     project_internal_gql_id,
     pagination_enabled,
 ):
-    """`Artifact._from_name()` should request only the first page of membership aliases.
+    """`Artifact._from_name()` should defer all membership alias pages.
 
     Regression coverage for the `ArtifactMembershipByName` query fetching a
-    membership's complete, unbounded `aliases` list even when only the first
-    page is needed -- the root cause of multi-second responses for artifacts
-    with many aliases. Any further pages are fetched lazily, only once
+    membership's complete, unbounded `aliases` list even when no alias is
+    needed -- the root cause of multi-second responses for artifacts
+    with many aliases. All pages are fetched lazily, only once
     something actually reads `Artifact.aliases` (covered separately in
     `tests/unit_tests/test_artifacts/test_artifact_from_name.py`); merely
     fetching the artifact must never request them.
@@ -856,10 +856,6 @@ def test_fetch_artifact_paginates_membership_aliases(
         aliases=[{"id": "PLACEHOLDER", "alias": "flat-alias"}],
         created_at="PLACEHOLDER",
     ).model_dump()
-    mock_membership_fragment_data["aliasesConnection"] = {
-        "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
-        "edges": [{"node": {"id": "PLACEHOLDER", "alias": "v0"}}],
-    }
 
     membership_by_name_responder = Constant(
         content={
@@ -897,7 +893,13 @@ def test_fetch_artifact_paginates_membership_aliases(
     api.artifact("test-entity/test-project/test-collection:v0")
 
     assert membership_by_name_responder.total_calls == 1
-    # Fetching the artifact never requests the continuation page on its own,
+    query = membership_by_name_responder.requests[0].query
+    assert "aliasesConnection" not in query
+    if pagination_enabled:
+        assert "aliases {" not in query
+    else:
+        assert "aliases {" in query
+    # Fetching the artifact never requests an alias page on its own,
     # whether or not pagination is enabled -- that's deferred until something
     # reads `.aliases`, which this test never does.
     assert membership_aliases_responder.total_calls == 0
