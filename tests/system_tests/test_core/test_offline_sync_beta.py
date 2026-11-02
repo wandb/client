@@ -457,16 +457,6 @@ def _log_table_and_model(run: wandb.Run, tmp_path: pathlib.Path) -> None:
     run.log_artifact(model)
 
 
-def _logged_table_and_model_types(run: wandb.apis.public.Run) -> list[str]:
-    """The types of the run's table and model artifacts.
-
-    The server may add artifacts of its own to the run, such as history
-    exports, so others are ignored.
-    """
-    types = (a.type for a in run.logged_artifacts())
-    return sorted(t for t in types if t in ("model", "run_table"))
-
-
 def test_syncs_artifacts_of_run_without_entity(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -489,8 +479,10 @@ def test_syncs_artifacts_of_run_without_entity(
         runner.invoke(cli.beta, f"sync {run.sync_dir}")
 
     api = wandb.Api(api_key=user)
-    synced_run = api.run(f"{user}/project1/{run.id}")
-    assert _logged_table_and_model_types(synced_run) == ["model", "run_table"]
+    artifacts = api.run(f"{user}/project1/{run.id}").logged_artifacts()
+    # The server may add artifacts of its own, such as history exports.
+    types = sorted(a.type for a in artifacts if a.type in ("model", "run_table"))
+    assert types == ["model", "run_table"]
 
 
 def test_sync_to_other_path_moves_artifacts(
@@ -507,8 +499,9 @@ def test_sync_to_other_path_moves_artifacts(
         f"sync -p project2 --id {run.id}-copy {run.sync_dir}",
     )
 
-    synced_run = api.run(f"{user}/project2/{run.id}-copy")
-    assert _logged_table_and_model_types(synced_run) == ["model", "run_table"]
+    artifacts = api.run(f"{user}/project2/{run.id}-copy").logged_artifacts()
+    types = sorted(a.type for a in artifacts if a.type in ("model", "run_table"))
+    assert types == ["model", "run_table"]
 
 
 def test_sync_overrides(

@@ -13,15 +13,6 @@ import (
 	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
 )
 
-func senderWithRun(t *testing.T, entity, project string) *Sender {
-	t.Helper()
-	runHandle := runhandle.New()
-	require.NoError(t, runHandle.Init(runupsertertest.NewTestUpserter(
-		t, entity, project, "run-id", runupserter.RunUpserterParams{},
-	)))
-	return &Sender{runHandle: runHandle}
-}
-
 func TestWithRunEntityAndProject(t *testing.T) {
 	testCases := []struct {
 		name                    string
@@ -36,7 +27,11 @@ func TestWithRunEntityAndProject(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := senderWithRun(t, "run-entity", "run-project")
+			runHandle := runhandle.New()
+			require.NoError(t, runHandle.Init(runupsertertest.NewTestUpserter(
+				t, "run-entity", "run-project", "run-id", runupserter.RunUpserterParams{},
+			)))
+			s := &Sender{runHandle: runHandle}
 			msg := &spb.ArtifactRecord{Entity: tc.entity, Project: tc.project, Name: "table"}
 			original := proto.CloneOf(msg)
 
