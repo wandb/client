@@ -1020,20 +1020,10 @@ fragment TagFragment on Tag {
 """
 
 ARTIFACT_MEMBERSHIP_BY_NAME_GQL = """
-query ArtifactMembershipByName($entity: String!, $project: String!, $name: String!, $includeAliases: Boolean = false, $perPage: Int = 100) {
+query ArtifactMembershipByName($entity: String!, $project: String!, $name: String!, $includeAliases: Boolean = false) {
   project(name: $project, entityName: $entity) {
     artifactCollectionMembership(name: $name) {
       ...ArtifactMembershipFragment
-      aliasesConnection(first: $perPage) {
-        pageInfo {
-          ...PageInfoFragment
-        }
-        edges {
-          node {
-            ...ArtifactAliasFragment
-          }
-        }
-      }
     }
   }
 }
@@ -1083,7 +1073,7 @@ fragment ArtifactMembershipFragment on ArtifactCollectionMembership {
   id
   versionIndex
   createdAt
-  aliases {
+  aliases @include(if: true) {
     ...ArtifactAliasFragment
   }
   artifactCollection {
@@ -1100,12 +1090,6 @@ fragment CollectionInfoFragment on ArtifactCollection {
   project {
     ...ProjectInfoFragment
   }
-}
-
-fragment PageInfoFragment on PageInfo {
-  __typename
-  endCursor
-  hasNextPage
 }
 
 fragment ProjectInfoFragment on Project {
@@ -1133,7 +1117,7 @@ fragment TagFragment on Tag {
 """
 
 ARTIFACT_MEMBERSHIP_ALIASES_GQL = """
-query ArtifactMembershipAliases($entity: String!, $project: String!, $name: String!, $cursor: String, $perPage: Int = 100) {
+query ArtifactMembershipAliases($entity: String!, $project: String!, $name: String!, $cursor: String, $perPage: Int = 1000) {
   project(name: $project, entityName: $entity) {
     artifactCollectionMembership(name: $name) {
       aliasesConnection(after: $cursor, first: $perPage) {
@@ -1311,7 +1295,7 @@ fragment ArtifactMembershipFragment on ArtifactCollectionMembership {
   id
   versionIndex
   createdAt
-  aliases {
+  aliases @include(if: true) {
     ...ArtifactAliasFragment
   }
   artifactCollection {
@@ -1419,7 +1403,7 @@ fragment ArtifactMembershipFragment on ArtifactCollectionMembership {
   id
   versionIndex
   createdAt
-  aliases {
+  aliases @include(if: true) {
     ...ArtifactAliasFragment
   }
   artifactCollection {
@@ -1588,7 +1572,7 @@ fragment ArtifactMembershipFragment on ArtifactCollectionMembership {
   id
   versionIndex
   createdAt
-  aliases {
+  aliases @include(if: true) {
     ...ArtifactAliasFragment
   }
   artifactCollection {

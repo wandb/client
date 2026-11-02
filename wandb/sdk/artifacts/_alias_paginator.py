@@ -1,8 +1,12 @@
 """Pagination support for `ArtifactCollectionMembership.aliasesConnection`.
 
 Mirrors the `_ArtifactCollectionAliases` paginator in `wandb.apis.public.artifacts`,
-but targets the membership-scoped connection used by `Artifact._from_name`
-(backing `wandb.Api().artifact(...)` lookups) instead of the collection-scoped one.
+but targets the membership-scoped connection used by `Artifact._resolve_pending_aliases`
+instead of the collection-scoped one. Membership aliases are never fetched with
+the rest of an artifact -- a membership's `aliases` field is omitted from the
+request entirely when pagination is enabled (see `ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION`
+call sites), and this paginator fetches the full list, from scratch, the first
+time something reads `Artifact.aliases`.
 """
 
 from __future__ import annotations
@@ -15,21 +19,21 @@ from wandb.apis.paginator import RelayPaginator
 if TYPE_CHECKING:
     from wandb.apis.public.service_api import ServiceApi
     from wandb.sdk.artifacts._generated import ArtifactAliasFragment
-    from wandb.sdk.artifacts._generated.artifact_membership_by_name import (
-        ArtifactMembershipByNameProjectArtifactCollectionMembershipAliasesConnection,
-    )
     from wandb.sdk.artifacts._models.pagination import ArtifactAliasConnection
+
+# Matches `_ArtifactCollectionAliases`'s default in `wandb.apis.public.artifacts`.
+DEFAULT_PAGE_SIZE = 1_000
 
 
 class _MembershipAliasesVars(PaginatorVars):
     entity: str
     project: str
     name: str
-    per_page: int = 100
+    per_page: int = DEFAULT_PAGE_SIZE
 
 
 class MembershipAliasesPaginator(RelayPaginator["ArtifactAliasFragment", str]):
-    """Continues paginating a membership's aliases from a previous page's cursor."""
+    """Paginates a membership's aliases, from the start or a previous cursor."""
 
     QUERY: ClassVar[str | None] = None
     last_response: ArtifactAliasConnection | None
@@ -41,7 +45,7 @@ class MembershipAliasesPaginator(RelayPaginator["ArtifactAliasFragment", str]):
         entity: str,
         project: str,
         name: str,
-        per_page: int = 100,
+        per_page: int = DEFAULT_PAGE_SIZE,
         start: str | None = None,
     ):
         if self.QUERY is None:
@@ -74,41 +78,26 @@ class MembershipAliasesPaginator(RelayPaginator["ArtifactAliasFragment", str]):
         ):
             raise ValueError(f"Unable to parse {nameof(type(self))!r} response data")
 
+        # `ArtifactAliasConnection`'s edges require a non-null `node`, unlike
+        # the generated type above (which allows one, per the schema) --
+        # drop any before re-validating, rather than raising on an
+        # otherwise-usable page over one unexpected null.
+        connection = membership.aliases_connection
+        non_null_edges = [edge for edge in connection.edges if edge.node]
         self.last_response = ArtifactAliasConnection.model_validate(
-            membership.aliases_connection
+            connection.model_copy(update={"edges": non_null_edges})
         )
 
     def _convert(self, node: ArtifactAliasFragment) -> str:
         return node.alias
 
+    def __next__(self) -> str:
+        # A page can contain only null nodes while still advertising another
+        # page. Keep paging until an alias is available or the connection ends.
+        self.index += 1
+        while len(self.objects) <= self.index:
+            if not self._load_page():
+                raise StopIteration
+        return self.objects[self.index]
 
-def split_membership_aliases(
-    first_page: ArtifactMembershipByNameProjectArtifactCollectionMembershipAliasesConnection,
-    service_api: ServiceApi,
-    *,
-    entity: str,
-    project: str,
-    name: str,
-    per_page: int = 100,
-) -> tuple[list[str], MembershipAliasesPaginator | None]:
-    """Split a membership's aliases into what's already fetched and what isn't.
-
-    Returns `first_page`'s alias names, plus -- only if there's more --
-    a paginator that lazily continues fetching the rest from its cursor.
-    The caller decides whether/when it's worth paying for those extra
-    requests, instead of always fetching every page up front.
-    """
-    aliases = [edge.node.alias for edge in first_page.edges if edge.node]
-
-    remaining = None
-    if first_page.page_info.has_next_page:
-        remaining = MembershipAliasesPaginator(
-            service_api,
-            entity=entity,
-            project=project,
-            name=name,
-            per_page=per_page,
-            start=first_page.page_info.end_cursor,
-        )
-
-    return aliases, remaining
+    next = __next__
