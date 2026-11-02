@@ -1258,40 +1258,22 @@ func (s *Sender) sendFiles(_ *spb.Record, filesRecord *spb.FilesRecord) {
 	s.runfilesUploader.Process(filesRecord)
 }
 
-// withRunEntityAndProject fills an artifact's empty entity and project with
-// the run's, as resolved by its upsert.
-//
-// An offline run's artifact records have no entity, since the run doesn't
-// know it until it's synced.
-func (s *Sender) withRunEntityAndProject(
-	msg *spb.ArtifactRecord,
-) *spb.ArtifactRecord {
-	if msg.Entity != "" && msg.Project != "" {
-		return msg
-	}
-
-	upserter, err := s.runHandle.Upserter()
-	if err != nil {
-		return msg
-	}
-
-	runPath := upserter.RunPath()
-	msg = proto.CloneOf(msg)
-	if msg.Entity == "" {
-		msg.Entity = runPath.Entity
-	}
-	if msg.Project == "" {
-		msg.Project = runPath.Project
-	}
-	return msg
-}
-
 func (s *Sender) sendArtifact(_ *spb.Record, msg *spb.ArtifactRecord) {
 	if s.settings.IsOffline() {
 		return
 	}
 
-	msg = s.withRunEntityAndProject(msg)
+	// A run's artifacts go where the run is, as resolved by its upsert.
+	//
+	// An offline run's artifact records have no entity, and `wandb sync`
+	// options such as --entity change only the run record.
+	if upserter, err := s.runHandle.Upserter(); err == nil {
+		runPath := upserter.RunPath()
+		msg = proto.CloneOf(msg)
+		msg.Entity = runPath.Entity
+		msg.Project = runPath.Project
+		msg.RunId = runPath.RunID
+	}
 
 	op := s.operations.New(
 		fmt.Sprintf(

@@ -40,56 +40,33 @@ func (u *RunSyncUpdates) Modify(record *spb.Record) {
 	}
 
 	if run := record.GetRun(); run != nil {
-		u.modifyRun(run)
-	}
-
-	if artifact := record.GetArtifact(); artifact != nil {
-		u.modifyArtifact(artifact)
-	}
-}
-
-func (u *RunSyncUpdates) modifyRun(run *spb.RunRecord) {
-	if u.Entity != "" {
-		run.Entity = u.Entity
-	}
-
-	if u.Project != "" {
-		run.Project = u.Project
-	}
-
-	if u.RunID != "" {
-		run.RunId = u.RunID
-	}
-
-	if u.JobType != "" {
-		run.JobType = u.JobType
-	}
-
-	newTags := make([]string, 0, len(run.Tags))
-	for _, oldTag := range run.Tags {
-		newTag, replaced := u.TagReplacements[oldTag]
-
-		switch {
-		case !replaced:
-			newTags = append(newTags, oldTag)
-		case newTag != "":
-			newTags = append(newTags, newTag)
+		if u.Entity != "" {
+			run.Entity = u.Entity
 		}
-	}
-	run.Tags = newTags
-}
 
-// modifyArtifact moves an artifact the run logged to where the run goes.
-func (u *RunSyncUpdates) modifyArtifact(artifact *spb.ArtifactRecord) {
-	if u.Entity != "" {
-		artifact.Entity = u.Entity
-	}
+		if u.Project != "" {
+			run.Project = u.Project
+		}
 
-	if u.Project != "" {
-		artifact.Project = u.Project
-	}
+		if u.RunID != "" {
+			run.RunId = u.RunID
+		}
 
-	if u.RunID != "" {
-		artifact.RunId = u.RunID
+		if u.JobType != "" {
+			run.JobType = u.JobType
+		}
+
+		newTags := make([]string, 0, len(run.Tags))
+		for _, oldTag := range run.Tags {
+			newTag, replaced := u.TagReplacements[oldTag]
+
+			switch {
+			case !replaced:
+				newTags = append(newTags, oldTag)
+			case newTag != "":
+				newTags = append(newTags, newTag)
+			}
+		}
+		run.Tags = newTags
 	}
 }
