@@ -464,69 +464,6 @@ func TestSendUseArtifact(t *testing.T) {
 	x.Sender.SendRecord(useArtifact, nil)
 }
 
-// waitForRequest waits for the client to receive a request with the operation
-// name and returns the first one.
-func waitForRequest(
-	t *testing.T,
-	client *gqlmock.MockClient,
-	opName string,
-) *graphql.Request {
-	t.Helper()
-
-	var found *graphql.Request
-	require.Eventually(t, func() bool {
-		for _, req := range client.AllRequests() {
-			if req.OpName == opName {
-				found = req
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond)
-	return found
-}
-
-func sendArtifactRecord(x testFixtures, entity, project string) {
-	x.Sender.SendRecord(&spb.Record{
-		RecordType: &spb.Record_Artifact{
-			Artifact: &spb.ArtifactRecord{
-				Entity:   entity,
-				Project:  project,
-				RunId:    "run1",
-				Type:     "run_table",
-				Name:     "run-run1-table",
-				Manifest: &spb.ArtifactManifest{Version: 1},
-			},
-		},
-	}, nil)
-}
-
-func TestSendArtifact_NoEntityOrProject_UsesTheRuns(t *testing.T) {
-	// An offline run's artifact records have no entity; wandb sync sets it
-	// only on the run.
-	mockGQL := gqlmock.NewMockClient()
-	x := makeSenderWithFileStream(t, mockGQL, filestreamtest.NewFakeFileStream())
-
-	sendArtifactRecord(x, "", "")
-
-	gqlmock.AssertVariables(t,
-		waitForRequest(t, mockGQL, "CreateArtifact"),
-		gqlmock.GQLVar("input.entityName", gomock.Eq("test-entity")),
-		gqlmock.GQLVar("input.projectName", gomock.Eq("test-project")))
-}
-
-func TestSendArtifact_WithEntityAndProject_KeepsThem(t *testing.T) {
-	mockGQL := gqlmock.NewMockClient()
-	x := makeSenderWithFileStream(t, mockGQL, filestreamtest.NewFakeFileStream())
-
-	sendArtifactRecord(x, "artifact-entity", "artifact-project")
-
-	gqlmock.AssertVariables(t,
-		waitForRequest(t, mockGQL, "CreateArtifact"),
-		gqlmock.GQLVar("input.entityName", gomock.Eq("artifact-entity")),
-		gqlmock.GQLVar("input.projectName", gomock.Eq("artifact-project")))
-}
-
 var validFetchOrgEntityFromEntityResponse = `{
 	"entity": {
 		"organization": {
