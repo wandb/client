@@ -13,6 +13,7 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 	"github.com/google/wire"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/featurechecker"
@@ -1257,10 +1258,40 @@ func (s *Sender) sendFiles(_ *spb.Record, filesRecord *spb.FilesRecord) {
 	s.runfilesUploader.Process(filesRecord)
 }
 
+// withRunEntityAndProject fills an artifact's empty entity and project with
+// the run's, as resolved by its upsert.
+//
+// An offline run's artifact records have no entity, since the run doesn't
+// know it until it's synced.
+func (s *Sender) withRunEntityAndProject(
+	msg *spb.ArtifactRecord,
+) *spb.ArtifactRecord {
+	if msg.Entity != "" && msg.Project != "" {
+		return msg
+	}
+
+	upserter, err := s.runHandle.Upserter()
+	if err != nil {
+		return msg
+	}
+
+	runPath := upserter.RunPath()
+	msg = proto.CloneOf(msg)
+	if msg.Entity == "" {
+		msg.Entity = runPath.Entity
+	}
+	if msg.Project == "" {
+		msg.Project = runPath.Project
+	}
+	return msg
+}
+
 func (s *Sender) sendArtifact(_ *spb.Record, msg *spb.ArtifactRecord) {
 	if s.settings.IsOffline() {
 		return
 	}
+
+	msg = s.withRunEntityAndProject(msg)
 
 	op := s.operations.New(
 		fmt.Sprintf(
