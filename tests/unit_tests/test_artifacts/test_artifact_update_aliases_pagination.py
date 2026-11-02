@@ -149,3 +149,22 @@ def test_update_without_membership_feature_uses_artifact_payload():
         "artifactMembership"
         in service_api.execute_graphql.call_args.kwargs["omit_fields"]
     )
+
+
+def test_update_skips_alias_diff_when_already_pending_and_untouched():
+    """`_update()` must not pay for an alias fetch just to confirm nothing changed.
+
+    Once a prior fetch has left `.aliases` pending (unread), a later
+    `_update()` that never touches aliases either should skip resolving
+    them entirely -- the diff against `_saved_aliases` is guaranteed empty
+    without paying for a single page, let alone every remaining one.
+    """
+    artifact, service_api = _setup(pagination_enabled=True, membership_enabled=True)
+    artifact._aliases = None
+    artifact._saved_aliases = None
+
+    artifact._update()
+
+    # Only the `UpdateArtifact` mutation ran -- no alias-pagination
+    # request, and no AddAliases/DeleteAliases mutation either.
+    service_api.execute_graphql.assert_called_once()
