@@ -457,6 +457,16 @@ def _log_table_and_model(run: wandb.Run, tmp_path: pathlib.Path) -> None:
     run.log_artifact(model)
 
 
+def _logged_table_and_model_types(run: wandb.apis.public.Run) -> list[str]:
+    """The types of the run's table and model artifacts.
+
+    The server may add artifacts of its own to the run, such as history
+    exports, so others are ignored.
+    """
+    types = (a.type for a in run.logged_artifacts())
+    return sorted(t for t in types if t in ("model", "run_table"))
+
+
 def test_syncs_artifacts_of_run_without_entity(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -467,16 +477,20 @@ def test_syncs_artifacts_of_run_without_entity(
     # Without an entity in the environment or settings, an offline run doesn't
     # know its entity until it's synced. Make the Api only after the run, so it
     # doesn't load settings while WANDB_ENTITY is still set.
-    monkeypatch.delenv("WANDB_ENTITY")
-    with wandb.init(mode="offline", project="project1") as run:
-        assert not run.entity
-        _log_table_and_model(run, tmp_path)
+    #
+    # A nested context restores WANDB_ENTITY before the user fixture restores
+    # the environment it changed.
+    with monkeypatch.context() as env:
+        env.delenv("WANDB_ENTITY")
+        with wandb.init(mode="offline", project="project1") as run:
+            assert not run.entity
+            _log_table_and_model(run, tmp_path)
 
-    runner.invoke(cli.beta, f"sync {run.sync_dir}")
+        runner.invoke(cli.beta, f"sync {run.sync_dir}")
 
     api = wandb.Api(api_key=user)
-    artifacts = api.run(f"{user}/project1/{run.id}").logged_artifacts()
-    assert sorted(a.type for a in artifacts) == ["model", "run_table"]
+    synced_run = api.run(f"{user}/project1/{run.id}")
+    assert _logged_table_and_model_types(synced_run) == ["model", "run_table"]
 
 
 def test_sync_to_other_path_moves_artifacts(
@@ -493,8 +507,8 @@ def test_sync_to_other_path_moves_artifacts(
         f"sync -p project2 --id {run.id}-copy {run.sync_dir}",
     )
 
-    artifacts = api.run(f"{user}/project2/{run.id}-copy").logged_artifacts()
-    assert sorted(a.type for a in artifacts) == ["model", "run_table"]
+    synced_run = api.run(f"{user}/project2/{run.id}-copy")
+    assert _logged_table_and_model_types(synced_run) == ["model", "run_table"]
 
 
 def test_sync_overrides(
