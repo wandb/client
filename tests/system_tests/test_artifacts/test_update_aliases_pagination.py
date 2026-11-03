@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING, Any
 
 import wandb
 from pytest import mark
+from wandb.sdk.artifacts._generated import ArtifactMembershipFragment
+from wandb.sdk.artifacts._validators import FullArtifactPath
+from wandb.sdk.artifacts.artifact import Artifact
 
 if TYPE_CHECKING:
     from tests.fixtures.wandb_backend_spy import WandbBackendSpy
@@ -112,9 +115,15 @@ def _stub_server_features(
     )
 
 
-@mark.parametrize("pagination_enabled", [True, False])
+@mark.parametrize(
+    ("pagination_enabled", "membership_enabled"),
+    [(True, True), (False, True), (True, False)],
+)
 def test_update_resolves_membership_aliases(
-    user, wandb_backend_spy: WandbBackendSpy, pagination_enabled: bool
+    user,
+    wandb_backend_spy: WandbBackendSpy,
+    pagination_enabled: bool,
+    membership_enabled: bool,
 ):
     gql = wandb_backend_spy.gql
 
@@ -124,7 +133,7 @@ def test_update_resolves_membership_aliases(
     _stub_server_features(
         wandb_backend_spy,
         pagination_enabled=pagination_enabled,
-        ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD=True,
+        ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD=membership_enabled,
     )
 
     with wandb.init() as run:
@@ -140,7 +149,9 @@ def test_update_resolves_membership_aliases(
     bare_artifact_dict = _artifact_fragment_dict(
         artifact_id=artifact.id, entity=entity, project=project, collection=collection
     )
-    if pagination_enabled:
+    if not membership_enabled:
+        membership = None
+    elif pagination_enabled:
         membership = _membership_dict(
             membership_id="membership-id",
             entity=entity,
@@ -190,16 +201,30 @@ def test_update_resolves_membership_aliases(
         gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
 
+    if pagination_enabled and membership_enabled:
+        # Simulate an artifact fetched from a paginated membership whose
+        # aliases have not yet been read.
+        artifact._aliases = None
+        artifact._saved_aliases = None
+
     artifact.description = "updated description"
     artifact.save()
 
     assert update_response.total_calls == 1
     sent_query = update_response.requests[0].query
-    assert artifact.version == "v5"
+    assert "$perPage" not in sent_query
 
-    if pagination_enabled:
+    if not membership_enabled:
+        assert "artifactMembership" not in sent_query
+        assert "$includeAliases" in sent_query
+        assert artifact.version == "v0"
+        assert artifact.aliases == []
+        assert aliases_response.total_calls == 0
+    elif pagination_enabled:
+        assert artifact.version == "v5"
         assert "aliasesConnection" not in sent_query
         assert "aliases @include(if: true)" not in sent_query
+        assert "$includeAliases" not in sent_query
         assert aliases_response.total_calls == 0
 
         assert set(artifact.aliases) == {"first-page", "second-page"}
@@ -209,6 +234,145 @@ def test_update_resolves_membership_aliases(
         assert set(artifact.aliases) == {"first-page", "second-page"}
         assert aliases_response.total_calls == 1
     else:
+        assert artifact.version == "v5"
         assert "aliasesConnection" not in sent_query
+        assert "$includeAliases" in sent_query
+        assert "aliases @include(if: true)" in sent_query
         assert "flat-alias" in artifact.aliases
         assert aliases_response.total_calls == 0
+
+
+def test_linked_save_keeps_portfolio_version_and_aliases(
+    user, wandb_backend_spy: WandbBackendSpy
+):
+    gql = wandb_backend_spy.gql
+    _stub_server_features(
+        wandb_backend_spy,
+        pagination_enabled=True,
+        ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD=True,
+    )
+
+    with wandb.init() as run:
+        source = wandb.Artifact("my-linked-update-source", type="dataset")
+        with source.new_file("x.txt", "w") as f:
+            f.write("hello")
+        run.log_artifact(source)
+        source.wait()
+
+    entity, project = source.entity, source.project
+    source_fragment = _artifact_fragment_dict(
+        artifact_id=source.id,
+        entity=entity,
+        project=project,
+        collection=source.name.split(":")[0],
+    )
+    portfolio_project = "portfolio-project"
+    portfolio_collection = "portfolio-collection"
+    portfolio_membership = ArtifactMembershipFragment.model_validate(
+        _membership_dict(
+            membership_id="portfolio-membership",
+            entity=entity,
+            project=portfolio_project,
+            collection=portfolio_collection,
+            version_index=7,
+            artifact=source_fragment,
+        )
+    )
+    linked = Artifact._from_attrs(
+        FullArtifactPath(
+            prefix=entity,
+            project=portfolio_project,
+            name=f"{portfolio_collection}:v7",
+        ),
+        portfolio_membership.artifact,
+        source._get_service_api(),
+        membership=portfolio_membership,
+    )
+    assert linked.is_link is True
+    assert linked.version == "v7"
+
+    read_only_response = gql.Constant(
+        content={"data": {"project": {"readOnly": False}}}
+    )
+    wandb_backend_spy.stub_gql(
+        gql.Matcher(operation="IsProjectReadOnly"), read_only_response
+    )
+    update_response = gql.Constant(
+        content={
+            "data": {
+                "result": {
+                    "artifact": source_fragment,
+                    "artifactMembership": _membership_dict(
+                        membership_id="source-membership",
+                        entity=entity,
+                        project=project,
+                        collection=source.name.split(":")[0],
+                        version_index=0,
+                        artifact=source_fragment,
+                    ),
+                }
+            }
+        }
+    )
+    wandb_backend_spy.stub_gql(gql.Matcher(operation="UpdateArtifact"), update_response)
+    aliases_response = gql.Constant(
+        content={
+            "data": {
+                "project": {
+                    "artifactCollectionMembership": {
+                        "aliasesConnection": _aliases_connection(
+                            ["v7", "portfolio-only"], has_next_page=False
+                        )
+                    }
+                }
+            }
+        }
+    )
+    wandb_backend_spy.stub_gql(
+        gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
+    )
+    add_response = gql.Constant(content={"data": {"result": {"success": True}}})
+    delete_response = gql.Constant(content={"data": {"result": {"success": True}}})
+    wandb_backend_spy.stub_gql(gql.Matcher(operation="AddAliases"), add_response)
+    wandb_backend_spy.stub_gql(gql.Matcher(operation="DeleteAliases"), delete_response)
+
+    linked.description = "updated source description"
+    linked.save()
+
+    assert update_response.total_calls == 1
+    assert linked.version == "v7"
+    assert linked.linked_at == portfolio_membership.created_at
+    assert "$includeAliases" not in update_response.requests[0].query
+    assert "$perPage" not in update_response.requests[0].query
+    assert aliases_response.total_calls == 0
+
+    assert linked.aliases == ["portfolio-only"]
+    assert aliases_response.total_calls == 1
+    assert aliases_response.requests[0].variables["project"] == portfolio_project
+    assert aliases_response.requests[0].variables["name"] == (
+        "portfolio-collection:v7"
+    )
+
+    linked.aliases = ["prod"]
+    linked.save()
+
+    assert linked.version == "v7"
+    assert linked.aliases == ["prod"]
+    assert aliases_response.total_calls == 1
+    assert update_response.total_calls == 2
+    assert add_response.total_calls == 1
+    assert delete_response.total_calls == 1
+    for response, alias_name in (
+        (add_response, "prod"),
+        (delete_response, "portfolio-only"),
+    ):
+        alias = response.requests[0].variables["input"]["aliases"][0]
+        assert alias["entityName"] == entity
+        assert alias["projectName"] == portfolio_project
+        assert alias["artifactCollectionName"] == portfolio_collection
+        assert alias["alias"] == alias_name
+
+    linked.save()
+    assert aliases_response.total_calls == 1
+    assert add_response.total_calls == 1
+    assert delete_response.total_calls == 1

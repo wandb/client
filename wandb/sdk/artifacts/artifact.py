@@ -1447,6 +1447,10 @@ class Artifact:
             self._delete_aliases(old_aliases - new_aliases, target=target)
             self._saved_aliases = copy(self.aliases)
 
+        aliases_after_save = self._aliases
+        saved_aliases_after_save = self._saved_aliases
+        version_before_update = self._version
+
         skip_update_artifact = self.is_link and self._is_source_project_read_only()
         if not skip_update_artifact:
             old_tags, new_tags = set(self._saved_tags), set(self.tags)
@@ -1481,7 +1485,38 @@ class Artifact:
             if not ((result := data.result) and (artifact := result.artifact)):
                 raise ValueError("Unable to parse updateArtifact response")
 
-            self._assign_attrs(artifact, membership=result.artifact_membership)
+            if self.is_link:
+                # UpdateArtifact returns the source membership, even when this
+                # object represents a portfolio link. Refresh the source-level
+                # fields without replacing the link's version or alias state.
+                link_state = (
+                    self._name,
+                    self._version,
+                    self._aliases,
+                    self._saved_aliases,
+                    self._linked_at,
+                )
+                self._assign_attrs(artifact)
+                (
+                    self._name,
+                    self._version,
+                    self._aliases,
+                    self._saved_aliases,
+                    self._linked_at,
+                ) = link_state
+            else:
+                self._assign_attrs(artifact, membership=result.artifact_membership)
+                if (
+                    aliases_after_save is not None
+                    and result.artifact_membership is not None
+                    and result.artifact_membership.aliases is None
+                    and self._version == version_before_update
+                ):
+                    # We already know the complete post-mutation alias set.
+                    # The paginated response omitted aliases, so keep that
+                    # set instead of forcing another fetch on the next read.
+                    self._aliases = aliases_after_save
+                    self._saved_aliases = saved_aliases_after_save
 
             self._ttl_changed = False  # Reset after updating artifact
         else:

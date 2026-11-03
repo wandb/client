@@ -123,6 +123,8 @@ def test_update_uses_flat_aliases_when_pagination_disabled():
 
 def test_update_defers_all_aliases_until_first_read():
     artifact, service_api = _setup(pagination_enabled=True, membership_enabled=True)
+    artifact._aliases = None
+    artifact._saved_aliases = None
     response = service_api.execute_graphql.return_value
     service_api.execute_graphql.side_effect = [response, _alias_page(["v3", "best"])]
 
@@ -132,6 +134,9 @@ def test_update_defers_all_aliases_until_first_read():
     assert artifact._aliases is None
     assert artifact.version == "v3"
     assert "aliases" in service_api.execute_graphql.call_args.kwargs["omit_fields"]
+    assert service_api.execute_graphql.call_args.kwargs["omit_variables"] == {
+        "includeAliases"
+    }
     assert artifact.aliases == ["best"]
     assert service_api.execute_graphql.call_count == 2
     alias_vars = service_api.execute_graphql.call_args.kwargs["variables"]
@@ -149,6 +154,7 @@ def test_update_without_membership_feature_uses_artifact_payload():
         "artifactMembership"
         in service_api.execute_graphql.call_args.kwargs["omit_fields"]
     )
+    assert service_api.execute_graphql.call_args.kwargs["omit_variables"] is None
 
 
 def test_update_skips_alias_diff_when_already_pending_and_untouched():
@@ -168,3 +174,117 @@ def test_update_skips_alias_diff_when_already_pending_and_untouched():
     # Only the `UpdateArtifact` mutation ran -- no alias-pagination
     # request, and no AddAliases/DeleteAliases mutation either.
     service_api.execute_graphql.assert_called_once()
+
+
+def test_update_keeps_already_loaded_aliases_without_refetching():
+    artifact, service_api = _setup(pagination_enabled=True, membership_enabled=True)
+    artifact._version = "v3"
+    artifact._name = "test-collection:v3"
+    artifact._aliases = ["best"]
+    artifact._saved_aliases = ["best"]
+
+    artifact._update()
+    artifact._update()
+
+    assert artifact.aliases == ["best"]
+    assert artifact._saved_aliases == ["best"]
+    assert service_api.execute_graphql.call_count == 2
+    assert all(
+        "mutation UpdateArtifact" in call.args[0]
+        for call in service_api.execute_graphql.call_args_list
+    )
+
+
+def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker):
+    """The update response's source membership must not replace link state."""
+    service_api = Mock()
+    service_api.feature_enabled.side_effect = lambda feature, **_: feature in {
+        pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD,
+        pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION,
+    }
+    source = _artifact_fragment()
+    source_membership = _membership(aliases=None)
+    source_membership["versionIndex"] = 0
+    source_membership["createdAt"] = "source-created-at"
+    update_response = UpdateArtifact.model_validate(
+        {
+            "result": {
+                "artifact": source.model_dump(),
+                "artifactMembership": source_membership,
+            }
+        }
+    )
+    calls = []
+
+    def execute_graphql(query, **kwargs):
+        calls.append((query, kwargs))
+        if "mutation UpdateArtifact" in query:
+            return update_response
+        if "query ArtifactMembershipAliases" in query:
+            return _alias_page(["v7", "portfolio-only"])
+        if "mutation AddAliases" in query or "mutation DeleteAliases" in query:
+            return None
+        raise AssertionError(f"Unexpected GraphQL operation: {query}")
+
+    service_api.execute_graphql.side_effect = execute_graphql
+    path = FullArtifactPath(
+        prefix="portfolio-entity",
+        project="portfolio-project",
+        name="portfolio-collection:v7",
+    )
+    portfolio_membership = _membership(aliases=None)
+    portfolio_membership["versionIndex"] = 7
+    portfolio_membership["createdAt"] = "portfolio-created-at"
+    portfolio_membership["artifactCollection"]["name"] = "portfolio-collection"
+    portfolio_membership["artifactCollection"]["project"]["name"] = (
+        "portfolio-project"
+    )
+    portfolio_membership["artifactCollection"]["project"]["entity"]["name"] = (
+        "portfolio-entity"
+    )
+    artifact = Artifact._from_attrs(
+        path, source, service_api, membership=portfolio_membership
+    )
+    mocker.patch.object(artifact, "_is_source_project_read_only", return_value=False)
+    assert artifact.is_link is True
+    assert artifact.version == "v7"
+
+    artifact._update()
+
+    assert artifact.version == "v7"
+    assert artifact.linked_at == "portfolio-created-at"
+    assert artifact._aliases is None
+    assert artifact.aliases == ["portfolio-only"]
+    alias_call = next(
+        (query, kwargs)
+        for query, kwargs in calls
+        if "query ArtifactMembershipAliases" in query
+    )
+    assert alias_call[1]["variables"]["entity"] == "portfolio-entity"
+    assert alias_call[1]["variables"]["project"] == "portfolio-project"
+    assert alias_call[1]["variables"]["name"] == "portfolio-collection:v7"
+
+    artifact.aliases = ["prod"]
+    artifact._update()
+
+    assert artifact.version == "v7"
+    assert artifact.aliases == ["prod"]
+    assert sum("query ArtifactMembershipAliases" in query for query, _ in calls) == 1
+    add_call = next(
+        (query, kwargs) for query, kwargs in calls if "mutation AddAliases" in query
+    )
+    delete_call = next(
+        (query, kwargs) for query, kwargs in calls if "mutation DeleteAliases" in query
+    )
+    for _, kwargs in (add_call, delete_call):
+        alias = kwargs["variables"]["input"]["aliases"][0]
+        assert alias["entityName"] == "portfolio-entity"
+        assert alias["projectName"] == "portfolio-project"
+        assert alias["artifactCollectionName"] == "portfolio-collection"
+    assert add_call[1]["variables"]["input"]["aliases"][0]["alias"] == "prod"
+    assert delete_call[1]["variables"]["input"]["aliases"][0]["alias"] == "portfolio-only"
+
+    artifact._update()
+    assert sum("query ArtifactMembershipAliases" in query for query, _ in calls) == 1
+    assert sum("mutation AddAliases" in query for query, _ in calls) == 1
+    assert sum("mutation DeleteAliases" in query for query, _ in calls) == 1
