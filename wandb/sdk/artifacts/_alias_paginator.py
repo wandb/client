@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from wandb.sdk.artifacts._generated import ArtifactAliasFragment
     from wandb.sdk.artifacts._models.pagination import ArtifactAliasConnection
 
-DEFAULT_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 1_000
 
 
 class _MembershipAliasesVars(PaginatorVars):
