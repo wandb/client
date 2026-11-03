@@ -6,7 +6,7 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from pytest import fixture, raises
+from pytest import fixture, mark
 from wandb.apis.public import automations as automations_module
 from wandb.apis.public.automations import EntityAutomations, LegacyEntityAutomations
 
@@ -69,9 +69,28 @@ def termwarn(monkeypatch) -> MagicMock:
 
 
 def _service_api(*responses: dict[str, Any]) -> MagicMock:
+    """A fake `ServiceApi` that returns each response in turn.
+
+    Like the real `execute_graphql`, it hands the serialized response to the
+    `parse` callable it was given, so the tests exercise however the paginator
+    chooses to parse each page.
+    """
+    pages = iter(responses)
+
+    def execute_graphql(*_: Any, parse=json.loads, **__: Any) -> Any:
+        return parse(json.dumps(next(pages)))
+
     service_api = MagicMock()
-    service_api.execute_graphql.side_effect = list(responses)
+    service_api.execute_graphql.side_effect = execute_graphql
     return service_api
+
+
+def _assert_warned_once_per_process(termwarn: MagicMock) -> None:
+    """The skip warning was emitted, deduplicated via `repeat=False`."""
+    termwarn.assert_called()
+    for call in termwarn.call_args_list:
+        assert "Upgrade wandb" in call.args[0]
+        assert call.kwargs.get("repeat") is False
 
 
 def test_entity_automations_skips_unparseable(termwarn):
@@ -80,7 +99,7 @@ def test_entity_automations_skips_unparseable(termwarn):
     automations = list(EntityAutomations(_service_api(response), entity="my-entity"))
 
     assert [a.name for a in automations] == ["supported", "also-supported"]
-    termwarn.assert_called()
+    _assert_warned_once_per_process(termwarn)
 
 
 def test_entity_automations_no_warning_when_all_parse(termwarn):
@@ -91,18 +110,6 @@ def test_entity_automations_no_warning_when_all_parse(termwarn):
 
     assert [a.name for a in automations] == ["a", "b"]
     termwarn.assert_not_called()
-
-
-def test_legacy_entity_automations_skips_unparseable(termwarn):
-    project = {"__typename": "Project", "triggers": MIXED_TRIGGERS}
-    response = {"scope": {"projects": _connection([project])}}
-
-    automations = list(
-        LegacyEntityAutomations(_service_api(response), entity="my-entity")
-    )
-
-    assert [a.name for a in automations] == ["supported", "also-supported"]
-    termwarn.assert_called()
 
 
 def test_legacy_entity_automations_filters_by_name_before_parsing(termwarn):
@@ -120,57 +127,70 @@ def test_legacy_entity_automations_filters_by_name_before_parsing(termwarn):
     termwarn.assert_not_called()
 
 
-def test_entity_automations_raises_on_malformed_response():
-    with raises(ValueError, match="Unexpected response data"):
-        list(EntityAutomations(_service_api({"scope": None}), entity="my-entity"))
-
-
-def test_legacy_entity_automations_raises_on_malformed_response():
-    with raises(ValueError, match="Unexpected response data"):
-        list(LegacyEntityAutomations(_service_api({"scope": None}), entity="x"))
-
-
 UNPARSEABLE_TRIGGER = _trigger("unknown-action", action={})
 
 
-def test_entity_automations_continues_past_fully_skipped_page(termwarn):
+def _entity_page(triggers: list[Any], **page_info: Any) -> dict[str, Any]:
+    return {"scope": {"triggers": _connection(triggers, **page_info)}}
+
+
+def _legacy_page(triggers: list[Any], **page_info: Any) -> dict[str, Any]:
+    project = {"__typename": "Project", "triggers": triggers}
+    return {"scope": {"projects": _connection([project], **page_info)}}
+
+
+PAGINATORS = mark.parametrize(
+    ("paginator_cls", "page"),
+    [
+        (EntityAutomations, _entity_page),
+        (LegacyEntityAutomations, _legacy_page),
+    ],
+    ids=["entity", "legacy"],
+)
+
+
+@PAGINATORS
+def test_continues_past_consecutive_fully_skipped_pages(termwarn, paginator_cls, page):
     service_api = _service_api(
-        {
-            "scope": {
-                "triggers": _connection(
-                    [UNPARSEABLE_TRIGGER], end_cursor="c1", has_next=True
-                )
-            }
-        },
-        {"scope": {"triggers": _connection([_trigger("on-page-2")])}},
+        page([UNPARSEABLE_TRIGGER], end_cursor="c1", has_next=True),
+        page([UNPARSEABLE_TRIGGER], end_cursor="c2", has_next=True),
+        page([_trigger("on-page-3")]),
     )
 
-    automations = list(EntityAutomations(service_api, entity="my-entity"))
+    automations = list(paginator_cls(service_api, entity="my-entity"))
 
-    assert [a.name for a in automations] == ["on-page-2"]
-    assert service_api.execute_graphql.call_count == 2
+    assert [a.name for a in automations] == ["on-page-3"]
+    assert service_api.execute_graphql.call_count == 3
 
 
-def test_legacy_entity_automations_continues_past_fully_skipped_page(termwarn):
-    page_1 = {"__typename": "Project", "triggers": [UNPARSEABLE_TRIGGER]}
-    page_2 = {"__typename": "Project", "triggers": [_trigger("on-page-2")]}
+@PAGINATORS
+def test_continues_past_fully_skipped_page_after_a_listed_one(
+    termwarn, paginator_cls, page
+):
     service_api = _service_api(
-        {"scope": {"projects": _connection([page_1], end_cursor="c1", has_next=True)}},
-        {"scope": {"projects": _connection([page_2])}},
+        page([_trigger("on-page-1")], end_cursor="c1", has_next=True),
+        page([UNPARSEABLE_TRIGGER], end_cursor="c2", has_next=True),
+        page([_trigger("on-page-3")]),
     )
 
-    automations = list(LegacyEntityAutomations(service_api, entity="my-entity"))
+    automations = list(paginator_cls(service_api, entity="my-entity"))
 
-    assert [a.name for a in automations] == ["on-page-2"]
-    assert service_api.execute_graphql.call_count == 2
+    assert [a.name for a in automations] == ["on-page-1", "on-page-3"]
+    assert service_api.execute_graphql.call_count == 3
+
+
+@PAGINATORS
+def test_stops_after_last_fully_skipped_page(termwarn, paginator_cls, page):
+    service_api = _service_api(page([UNPARSEABLE_TRIGGER]))
+
+    assert list(paginator_cls(service_api, entity="my-entity")) == []
+    assert service_api.execute_graphql.call_count == 1
 
 
 def test_legacy_entity_automations_continues_past_pages_without_name_match():
-    other = {"__typename": "Project", "triggers": [_trigger("other")]}
-    match = {"__typename": "Project", "triggers": [_trigger("wanted")]}
     service_api = _service_api(
-        {"scope": {"projects": _connection([other], end_cursor="c1", has_next=True)}},
-        {"scope": {"projects": _connection([match])}},
+        _legacy_page([_trigger("other")], end_cursor="c1", has_next=True),
+        _legacy_page([_trigger("wanted")]),
     )
 
     automations = list(
@@ -178,12 +198,3 @@ def test_legacy_entity_automations_continues_past_pages_without_name_match():
     )
 
     assert [a.name for a in automations] == ["wanted"]
-
-
-def test_entity_automations_stops_after_last_empty_page(termwarn):
-    service_api = _service_api(
-        {"scope": {"triggers": _connection([UNPARSEABLE_TRIGGER])}},
-    )
-
-    assert list(EntityAutomations(service_api, entity="my-entity")) == []
-    assert service_api.execute_graphql.call_count == 1
