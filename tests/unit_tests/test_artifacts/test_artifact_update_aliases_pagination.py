@@ -217,17 +217,18 @@ def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker
             }
         }
     )
-    calls = []
+    calls = {}
+    responses = {
+        "UpdateArtifact": update_response,
+        "ArtifactMembershipAliases": _alias_page(["v7", "portfolio-only"]),
+        "AddAliases": None,
+        "DeleteAliases": None,
+    }
 
     def execute_graphql(query, **kwargs):
-        calls.append((query, kwargs))
-        if "mutation UpdateArtifact" in query:
-            return update_response
-        if "query ArtifactMembershipAliases" in query:
-            return _alias_page(["v7", "portfolio-only"])
-        if "mutation AddAliases" in query or "mutation DeleteAliases" in query:
-            return None
-        raise AssertionError(f"Unexpected GraphQL operation: {query}")
+        operation = query.split()[1].split("(")[0]
+        calls.setdefault(operation, []).append(kwargs)
+        return responses[operation]
 
     service_api.execute_graphql.side_effect = execute_graphql
     path = FullArtifactPath(
@@ -256,38 +257,28 @@ def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker
     assert artifact.linked_at == "portfolio-created-at"
     assert artifact._aliases is None
     assert artifact.aliases == ["portfolio-only"]
-    alias_call = next(
-        (query, kwargs)
-        for query, kwargs in calls
-        if "query ArtifactMembershipAliases" in query
-    )
-    assert alias_call[1]["variables"]["entity"] == "portfolio-entity"
-    assert alias_call[1]["variables"]["project"] == "portfolio-project"
-    assert alias_call[1]["variables"]["name"] == "portfolio-collection:v7"
+    alias_vars = calls["ArtifactMembershipAliases"][0]["variables"]
+    assert alias_vars["entity"] == "portfolio-entity"
+    assert alias_vars["project"] == "portfolio-project"
+    assert alias_vars["name"] == "portfolio-collection:v7"
 
     artifact.aliases = ["prod"]
     artifact._update()
 
     assert artifact.version == "v7"
     assert artifact.aliases == ["prod"]
-    assert sum("query ArtifactMembershipAliases" in query for query, _ in calls) == 1
-    add_call = next(
-        (query, kwargs) for query, kwargs in calls if "mutation AddAliases" in query
-    )
-    delete_call = next(
-        (query, kwargs) for query, kwargs in calls if "mutation DeleteAliases" in query
-    )
-    for _, kwargs in (add_call, delete_call):
-        alias = kwargs["variables"]["input"]["aliases"][0]
+    assert len(calls["ArtifactMembershipAliases"]) == 1
+    add_vars = calls["AddAliases"][0]["variables"]
+    delete_vars = calls["DeleteAliases"][0]["variables"]
+    for variables in (add_vars, delete_vars):
+        alias = variables["input"]["aliases"][0]
         assert alias["entityName"] == "portfolio-entity"
         assert alias["projectName"] == "portfolio-project"
         assert alias["artifactCollectionName"] == "portfolio-collection"
-    assert add_call[1]["variables"]["input"]["aliases"][0]["alias"] == "prod"
-    assert (
-        delete_call[1]["variables"]["input"]["aliases"][0]["alias"] == "portfolio-only"
-    )
+    assert add_vars["input"]["aliases"][0]["alias"] == "prod"
+    assert delete_vars["input"]["aliases"][0]["alias"] == "portfolio-only"
 
     artifact._update()
-    assert sum("query ArtifactMembershipAliases" in query for query, _ in calls) == 1
-    assert sum("mutation AddAliases" in query for query, _ in calls) == 1
-    assert sum("mutation DeleteAliases" in query for query, _ in calls) == 1
+    assert len(calls["ArtifactMembershipAliases"]) == 1
+    assert len(calls["AddAliases"]) == 1
+    assert len(calls["DeleteAliases"]) == 1
