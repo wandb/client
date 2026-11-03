@@ -158,19 +158,33 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
     )
     wandb_backend_spy.stub_gql(gql.Matcher(operation="LinkArtifact"), link_response)
 
-    aliases_response = gql.Constant(
+    first_alias_page = gql.Constant(
         content={
             "data": {
                 "project": {
                     "artifactCollectionMembership": {
                         "aliasesConnection": _aliases_connection(
-                            ["first-page", "second-page"], has_next_page=False
+                            ["first-page"], has_next_page=True
                         )
                     }
                 }
             },
         }
     )
+    second_alias_page = gql.Constant(
+        content={
+            "data": {
+                "project": {
+                    "artifactCollectionMembership": {
+                        "aliasesConnection": _aliases_connection(
+                            ["second-page"], has_next_page=False
+                        )
+                    }
+                }
+            },
+        }
+    )
+    aliases_response = gql.Sequence([first_alias_page, second_alias_page])
     wandb_backend_spy.stub_gql(
         gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
@@ -191,14 +205,16 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
     assert linked.source_name == source_name
 
     assert set(linked.aliases) == {"first-page", "second-page"}
-    assert aliases_response.total_calls == 1
-    assert aliases_response.requests[0].variables["entity"] == entity
-    assert aliases_response.requests[0].variables["project"] == target_project
-    assert aliases_response.requests[0].variables["name"] == "target-collection:v3"
+    assert aliases_response.total_calls == 2
+    for request in aliases_response.requests:
+        assert request.variables["entity"] == entity
+        assert request.variables["project"] == target_project
+        assert request.variables["name"] == "target-collection:v3"
+    assert aliases_response.requests[1].variables["cursor"] == "cursor-1"
 
     # A second read doesn't re-fetch anything.
     assert set(linked.aliases) == {"first-page", "second-page"}
-    assert aliases_response.total_calls == 1
+    assert aliases_response.total_calls == 2
 
 
 @mark.parametrize(
