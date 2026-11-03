@@ -901,8 +901,10 @@ def test_fetch_artifact_paginates_membership_aliases(
     # when pagination is enabled.
     if pagination_enabled:
         assert "aliases @include(if: true)" not in query
+        assert "$includeAliases" not in query
     else:
         assert "aliases @include(if: true)" in query
+        assert "$includeAliases" in query
     # Fetching the artifact never requests an alias page on its own,
     # whether or not pagination is enabled -- that's deferred until something
     # reads `.aliases`, which this test never does.
