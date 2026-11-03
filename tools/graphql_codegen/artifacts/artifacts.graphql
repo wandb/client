@@ -227,7 +227,7 @@ query ArtifactMembershipAliases(
   $project: String!
   $name: String!
   $cursor: String
-  $perPage: Int = 1000
+  $perPage: Int!
 ) {
   project(name: $project, entityName: $entity) {
     artifactCollectionMembership(name: $name) {

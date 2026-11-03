@@ -1117,7 +1117,7 @@ fragment TagFragment on Tag {
 """
 
 ARTIFACT_MEMBERSHIP_ALIASES_GQL = """
-query ArtifactMembershipAliases($entity: String!, $project: String!, $name: String!, $cursor: String, $perPage: Int = 1000) {
+query ArtifactMembershipAliases($entity: String!, $project: String!, $name: String!, $cursor: String, $perPage: Int!) {
   project(name: $project, entityName: $entity) {
     artifactCollectionMembership(name: $name) {
       aliasesConnection(after: $cursor, first: $perPage) {
