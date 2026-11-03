@@ -3,11 +3,14 @@ from unittest.mock import Mock
 import pytest
 from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.artifacts._generated import (
+    FETCH_LINKED_ARTIFACTS_GQL,
+    UPDATE_ARTIFACT_GQL,
     ArtifactFragment,
     ArtifactMembershipAliases,
     ArtifactMembershipByName,
+    FetchLinkedArtifacts,
 )
-from wandb.sdk.artifacts._validators import FullArtifactPath, LinkArtifactFields
+from wandb.sdk.artifacts._validators import FullArtifactPath
 from wandb.sdk.artifacts.artifact import Artifact
 
 _PATH = FullArtifactPath(
@@ -90,6 +93,38 @@ def _alias_page(aliases, *, has_next_page=False, end_cursor=None):
                             for alias in aliases
                         ],
                     }
+                }
+            }
+        }
+    )
+
+
+def _linked_artifacts_response():
+    return FetchLinkedArtifacts.model_validate(
+        {
+            "artifact": {
+                "artifactMemberships": {
+                    "edges": [
+                        {
+                            "node": {
+                                "versionIndex": 7,
+                                "createdAt": "PLACEHOLDER",
+                                "aliases": [
+                                    {"id": "linked-alias", "alias": "linked-only"}
+                                ],
+                                "artifactCollection": {
+                                    "__typename": "ArtifactPortfolio",
+                                    "name": "linked-collection",
+                                    "project": {
+                                        "id": "UHJvamVjdDox",
+                                        "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
+                                        "name": "linked-project",
+                                        "entity": {"name": "linked-entity"},
+                                    },
+                                },
+                            }
+                        }
+                    ]
                 }
             }
         }
@@ -183,28 +218,47 @@ def test_aliases_setter_fetches_before_replacing():
     assert service_api.execute_graphql.call_count == 2
 
 
-def test_copy_as_link_does_not_inherit_source_pending_aliases():
-    service_api = _service_api(_membership_data(), _alias_page(["linked"]))
-    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
-    linked = artifact._create_linked_artifact_using_source_artifact(
-        LinkArtifactFields(
-            entity_name="linked-entity",
-            project_name="linked-project",
-            name="linked-collection:v7",
-            version="v7",
-            aliases=["known"],
-            linked_at="PLACEHOLDER",
-        )
+def test_linked_artifacts_uses_own_aliases_not_source_later_pages(mocker):
+    service_api = _service_api(
+        _membership_data(
+            canonical_entity="source-entity", canonical_project="source-project"
+        ),
+        _linked_artifacts_response(),
+        _alias_page(["source-first"], has_next_page=True, end_cursor="cursor-1"),
+        _alias_page(["source-later"]),
+        Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
     )
+    source = Artifact._from_name(path=_PATH, service_api=service_api)
+    assert source._aliases is None
 
-    assert linked.aliases == ["known"]
-    assert service_api.execute_graphql.call_count == 1
-    assert artifact._aliases is None
+    linked = source.linked_artifacts[0]
+
+    assert service_api.execute_graphql.call_args_list[1].args[0] == (
+        FETCH_LINKED_ARTIFACTS_GQL
+    )
+    assert linked.is_link is True
+    assert linked.aliases == ["linked-only", "v7"]
+    assert service_api.execute_graphql.call_count == 2
+    assert source.aliases == ["source-first", "source-later"]
+    assert linked.aliases == ["linked-only", "v7"]
+    assert service_api.execute_graphql.call_count == 4
+
+    # Saving an edit to the linked artifact must never try to delete a
+    # source alias from the source's later page.
+    linked.aliases = ["v7", "replacement"]
+    mocker.patch.object(linked, "_is_source_project_read_only", return_value=False)
+    add_aliases = mocker.patch.object(linked, "_add_aliases")
+    delete_aliases = mocker.patch.object(linked, "_delete_aliases")
+    mocker.patch.object(linked, "_assign_attrs")
+    linked.save()
+
+    assert add_aliases.call_args.args[0] == {"replacement"}
+    assert delete_aliases.call_args.args[0] == {"linked-only"}
+    assert service_api.execute_graphql.call_count == 5
+    assert service_api.execute_graphql.call_args.args[0] == UPDATE_ARTIFACT_GQL
 
 
 def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
-    from wandb.sdk.artifacts._generated import UPDATE_ARTIFACT_GQL
-
     # Canonical entity/project match the source: a non-link artifact, so
     # `_update()` goes straight to `UpdateArtifact` instead of first calling
     # `_is_source_project_read_only()` -- which would otherwise consume the
@@ -222,7 +276,8 @@ def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
     delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
     mocker.patch.object(artifact, "_assign_attrs")
 
-    artifact._update()
+    artifact.metadata = {"changed": True}
+    artifact.save()
 
     assert service_api.execute_graphql.call_count == 2
     assert service_api.execute_graphql.call_args.args[0] == UPDATE_ARTIFACT_GQL
@@ -232,32 +287,35 @@ def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
 
 
 def test_update_diffs_explicit_alias_edit_against_fetched_aliases(mocker):
-    from wandb.sdk.artifacts._generated import UPDATE_ARTIFACT_GQL
-
     # See the comment in the previous test: a non-link fixture, so the
     # mutation actually runs instead of being silently skipped.
     service_api = _service_api(
         _membership_data(
             canonical_entity="source-entity", canonical_project="source-project"
         ),
-        _alias_page(["old"]),
+        _alias_page(
+            ["v3", "keep", "remove-first"],
+            has_next_page=True,
+            end_cursor="cursor-1",
+        ),
+        _alias_page(["remove-later"]),
         Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
     )
     artifact = Artifact._from_name(path=_PATH, service_api=service_api)
     assert artifact.is_link is False
-    artifact.aliases = ["new"]
+    artifact.aliases = ["keep", "new"]
     add_aliases = mocker.patch.object(artifact, "_add_aliases")
     delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
     mocker.patch.object(artifact, "_assign_attrs")
 
-    artifact._update()
+    artifact.save()
 
     expected_target = FullArtifactPath(
         prefix=artifact.entity, project=artifact.project, name="test-collection"
     )
     assert add_aliases.call_args.args[0] == {"new"}
     assert add_aliases.call_args.kwargs["target"] == expected_target
-    assert delete_aliases.call_args.args[0] == {"old"}
+    assert delete_aliases.call_args.args[0] == {"remove-first", "remove-later"}
     assert delete_aliases.call_args.kwargs["target"] == expected_target
-    assert service_api.execute_graphql.call_count == 3
+    assert service_api.execute_graphql.call_count == 4
     assert service_api.execute_graphql.call_args.args[0] == UPDATE_ARTIFACT_GQL
