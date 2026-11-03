@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import wandb
+from pytest import mark
 
 if TYPE_CHECKING:
     from tests.fixtures.wandb_backend_spy import WandbBackendSpy
@@ -131,18 +132,21 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
         artifact.wait()
 
     entity, project = artifact.entity, artifact.project
+    source_name = artifact.name
+    target_project = "target-project"
+    target_collection = "target-collection"
 
     membership = _membership_dict(
         membership_id="membership-id",
         entity=entity,
-        project=project,
-        collection="target-collection",
+        project=target_project,
+        collection=target_collection,
         version_index=3,
         artifact=_artifact_fragment_dict(
             artifact_id=artifact.id,
             entity=entity,
             project=project,
-            collection="target-collection",
+            collection=source_name.split(":")[0],
         ),
     )
     link_response = gql.Constant(
@@ -171,7 +175,7 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
         gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
 
-    linked = artifact.link(f"{entity}/{project}/target-collection")
+    linked = artifact.link(f"{entity}/{target_project}/{target_collection}")
 
     # Linking only cost one request against `LinkArtifact`; no alias page
     # is fetched until the returned artifact's aliases are read.
@@ -179,10 +183,87 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
     assert aliases_response.total_calls == 0
     assert "aliasesConnection" not in link_response.requests[0].query
     assert "aliases @include(if: true)" not in link_response.requests[0].query
+    assert "$includeAliases" not in link_response.requests[0].query
+    assert "$perPage" not in link_response.requests[0].query
+    assert linked.name == "target-collection:v3"
+    assert linked.version == "v3"
+    assert linked.is_link is True
+    assert linked.source_name == source_name
 
     assert set(linked.aliases) == {"first-page", "second-page"}
     assert aliases_response.total_calls == 1
+    assert aliases_response.requests[0].variables["entity"] == entity
+    assert aliases_response.requests[0].variables["project"] == target_project
+    assert aliases_response.requests[0].variables["name"] == "target-collection:v3"
 
     # A second read doesn't re-fetch anything.
     assert set(linked.aliases) == {"first-page", "second-page"}
     assert aliases_response.total_calls == 1
+
+
+@mark.parametrize(
+    ("membership_enabled", "pagination_enabled"),
+    [(True, False), (False, True)],
+)
+def test_link_query_feature_fallbacks(
+    user,
+    wandb_backend_spy: WandbBackendSpy,
+    mocker,
+    membership_enabled: bool,
+    pagination_enabled: bool,
+):
+    gql = wandb_backend_spy.gql
+    _stub_server_features(
+        wandb_backend_spy,
+        pagination_enabled=pagination_enabled,
+        ARTIFACT_MEMBERSHIP_IN_LINK_ARTIFACT_RESPONSE=membership_enabled,
+    )
+
+    with wandb.init() as run:
+        artifact = wandb.Artifact("my-link-query-fallback", type="dataset")
+        with artifact.new_file("x.txt", "w") as f:
+            f.write("hello")
+        run.log_artifact(artifact)
+        artifact.wait()
+
+    entity, project = artifact.entity, artifact.project
+    response = {"versionIndex": 3}
+    if membership_enabled:
+        response["artifactMembership"] = {
+            **_membership_dict(
+                membership_id="membership-id",
+                entity=entity,
+                project="target-project",
+                collection="target-collection",
+                version_index=3,
+                artifact=_artifact_fragment_dict(
+                    artifact_id=artifact.id,
+                    entity=entity,
+                    project=project,
+                    collection=artifact.name.split(":")[0],
+                ),
+            ),
+            "aliases": [{"id": "alias-best", "alias": "best"}],
+        }
+    link_response = gql.Constant(content={"data": {"result": response}})
+    wandb_backend_spy.stub_gql(gql.Matcher(operation="LinkArtifact"), link_response)
+
+    if not membership_enabled:
+        fetched = mocker.patch("wandb.Api")
+
+    linked = artifact.link(f"{entity}/target-project/target-collection")
+
+    assert link_response.total_calls == 1
+    query = link_response.requests[0].query
+    assert "aliasesConnection" not in query
+    assert "$perPage" not in query
+    if membership_enabled:
+        assert "$includeAliases" in query
+        assert "aliases @include(if: true)" in query
+        assert link_response.requests[0].variables["includeAliases"] is False
+        assert linked.aliases == ["best"]
+    else:
+        assert "artifactMembership" not in query
+        assert "$includeAliases" not in query
+        assert "includeAliases" not in link_response.requests[0].variables
+        assert linked is fetched.return_value._artifact.return_value
