@@ -58,7 +58,30 @@ def _parse_automation(node: _RawTrigger) -> Automation | None:
         return None
 
 
-class _LegacyAutomationsPaginator(RelayPaginator[_RawProjectTriggers, "Automation"]):
+class _SkipEmptyPagesMixin:
+    """Keep fetching past pages that produce no objects.
+
+    `Paginator.__next__()` stops iterating if a freshly loaded page adds no
+    objects, even if the server reports more pages. Automation pages can be
+    empty after conversion, e.g. if every automation on the page was skipped
+    as unparseable or filtered out by name, so keep loading until a page adds
+    an object or there are no more pages.
+    """
+
+    objects: list[Automation]
+    more: bool
+
+    def _load_page(self) -> bool:
+        count = len(self.objects)
+        loaded = super()._load_page()  # type: ignore[misc]
+        while loaded and len(self.objects) == count and self.more:
+            loaded = super()._load_page()  # type: ignore[misc]
+        return loaded
+
+
+class _LegacyAutomationsPaginator(
+    _SkipEmptyPagesMixin, RelayPaginator[_RawProjectTriggers, "Automation"]
+):
     """A lazy iterator of `Automation` objects for older servers.
 
     For older servers that don't support direct queries for automations, this
@@ -168,7 +191,9 @@ class LegacyEntityAutomations(_LegacyAutomationsPaginator):
         )
 
 
-class EntityAutomations(RelayPaginator[_RawTrigger, "Automation"]):
+class EntityAutomations(
+    _SkipEmptyPagesMixin, RelayPaginator[_RawTrigger, "Automation"]
+):
     """A lazy iterator of `Automation` objects from an entity."""
 
     QUERY: ClassVar[str | None] = None  # type: ignore[misc]

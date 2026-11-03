@@ -41,9 +41,11 @@ def _trigger(
     }
 
 
-def _connection(nodes: list[Any]) -> dict[str, Any]:
+def _connection(
+    nodes: list[Any], *, end_cursor: str | None = None, has_next: bool = False
+) -> dict[str, Any]:
     return {
-        "pageInfo": {"endCursor": None, "hasNextPage": False},
+        "pageInfo": {"endCursor": end_cursor, "hasNextPage": has_next},
         "edges": [{"node": node} for node in nodes],
     }
 
@@ -66,9 +68,9 @@ def termwarn(monkeypatch) -> MagicMock:
     return mock
 
 
-def _service_api(response: dict[str, Any]) -> MagicMock:
+def _service_api(*responses: dict[str, Any]) -> MagicMock:
     service_api = MagicMock()
-    service_api.execute_graphql.return_value = response
+    service_api.execute_graphql.side_effect = list(responses)
     return service_api
 
 
@@ -126,3 +128,62 @@ def test_entity_automations_raises_on_malformed_response():
 def test_legacy_entity_automations_raises_on_malformed_response():
     with raises(ValueError, match="Unexpected response data"):
         list(LegacyEntityAutomations(_service_api({"scope": None}), entity="x"))
+
+
+UNPARSEABLE_TRIGGER = _trigger("unknown-action", action={})
+
+
+def test_entity_automations_continues_past_fully_skipped_page(termwarn):
+    service_api = _service_api(
+        {
+            "scope": {
+                "triggers": _connection(
+                    [UNPARSEABLE_TRIGGER], end_cursor="c1", has_next=True
+                )
+            }
+        },
+        {"scope": {"triggers": _connection([_trigger("on-page-2")])}},
+    )
+
+    automations = list(EntityAutomations(service_api, entity="my-entity"))
+
+    assert [a.name for a in automations] == ["on-page-2"]
+    assert service_api.execute_graphql.call_count == 2
+
+
+def test_legacy_entity_automations_continues_past_fully_skipped_page(termwarn):
+    page_1 = {"__typename": "Project", "triggers": [UNPARSEABLE_TRIGGER]}
+    page_2 = {"__typename": "Project", "triggers": [_trigger("on-page-2")]}
+    service_api = _service_api(
+        {"scope": {"projects": _connection([page_1], end_cursor="c1", has_next=True)}},
+        {"scope": {"projects": _connection([page_2])}},
+    )
+
+    automations = list(LegacyEntityAutomations(service_api, entity="my-entity"))
+
+    assert [a.name for a in automations] == ["on-page-2"]
+    assert service_api.execute_graphql.call_count == 2
+
+
+def test_legacy_entity_automations_continues_past_pages_without_name_match():
+    other = {"__typename": "Project", "triggers": [_trigger("other")]}
+    match = {"__typename": "Project", "triggers": [_trigger("wanted")]}
+    service_api = _service_api(
+        {"scope": {"projects": _connection([other], end_cursor="c1", has_next=True)}},
+        {"scope": {"projects": _connection([match])}},
+    )
+
+    automations = list(
+        LegacyEntityAutomations(service_api, entity="my-entity", name="wanted")
+    )
+
+    assert [a.name for a in automations] == ["wanted"]
+
+
+def test_entity_automations_stops_after_last_empty_page(termwarn):
+    service_api = _service_api(
+        {"scope": {"triggers": _connection([UNPARSEABLE_TRIGGER])}},
+    )
+
+    assert list(EntityAutomations(service_api, entity="my-entity")) == []
+    assert service_api.execute_graphql.call_count == 1
