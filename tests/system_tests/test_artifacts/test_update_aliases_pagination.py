@@ -349,9 +349,7 @@ def test_linked_save_keeps_portfolio_version_and_aliases(
     assert linked.aliases == ["portfolio-only"]
     assert aliases_response.total_calls == 1
     assert aliases_response.requests[0].variables["project"] == portfolio_project
-    assert aliases_response.requests[0].variables["name"] == (
-        "portfolio-collection:v7"
-    )
+    assert aliases_response.requests[0].variables["name"] == ("portfolio-collection:v7")
 
     linked.aliases = ["prod"]
     linked.save()

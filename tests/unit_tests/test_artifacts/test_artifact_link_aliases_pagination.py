@@ -119,6 +119,7 @@ def test_link_uses_flat_aliases_when_pagination_disabled():
     kwargs = service_api.execute_graphql.call_args.kwargs
     assert "aliases" not in kwargs["omit_fields"]
     assert kwargs["omit_variables"] is None
+    assert kwargs["variables"]["includeAliases"] is False
 
 
 def test_link_defers_all_aliases_until_first_read():
@@ -134,6 +135,9 @@ def test_link_defers_all_aliases_until_first_read():
     assert service_api.execute_graphql.call_count == 1
     assert linked._aliases is None
     assert "aliases" in service_api.execute_graphql.call_args.kwargs["omit_fields"]
+    assert service_api.execute_graphql.call_args.kwargs["omit_variables"] == {
+        "includeAliases"
+    }
     assert linked.aliases == ["best"]
     assert service_api.execute_graphql.call_count == 2
     alias_variables = service_api.execute_graphql.call_args.kwargs["variables"]
@@ -153,3 +157,6 @@ def test_link_without_membership_feature_uses_fallback(mocker):
         "artifactMembership"
         in service_api.execute_graphql.call_args.kwargs["omit_fields"]
     )
+    assert service_api.execute_graphql.call_args.kwargs["omit_variables"] == {
+        "includeAliases"
+    }

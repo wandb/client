@@ -198,10 +198,13 @@ def test_update_keeps_already_loaded_aliases_without_refetching():
 def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker):
     """The update response's source membership must not replace link state."""
     service_api = Mock()
-    service_api.feature_enabled.side_effect = lambda feature, **_: feature in {
-        pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD,
-        pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION,
-    }
+    service_api.feature_enabled.side_effect = lambda feature, **_: (
+        feature
+        in {
+            pb.ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD,
+            pb.ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION,
+        }
+    )
     source = _artifact_fragment()
     source_membership = _membership(aliases=None)
     source_membership["versionIndex"] = 0
@@ -236,9 +239,7 @@ def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker
     portfolio_membership["versionIndex"] = 7
     portfolio_membership["createdAt"] = "portfolio-created-at"
     portfolio_membership["artifactCollection"]["name"] = "portfolio-collection"
-    portfolio_membership["artifactCollection"]["project"]["name"] = (
-        "portfolio-project"
-    )
+    portfolio_membership["artifactCollection"]["project"]["name"] = "portfolio-project"
     portfolio_membership["artifactCollection"]["project"]["entity"]["name"] = (
         "portfolio-entity"
     )
@@ -282,7 +283,9 @@ def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker
         assert alias["projectName"] == "portfolio-project"
         assert alias["artifactCollectionName"] == "portfolio-collection"
     assert add_call[1]["variables"]["input"]["aliases"][0]["alias"] == "prod"
-    assert delete_call[1]["variables"]["input"]["aliases"][0]["alias"] == "portfolio-only"
+    assert (
+        delete_call[1]["variables"]["input"]["aliases"][0]["alias"] == "portfolio-only"
+    )
 
     artifact._update()
     assert sum("query ArtifactMembershipAliases" in query for query, _ in calls) == 1
