@@ -6,6 +6,7 @@ from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.artifacts._generated import (
     ArtifactFragment,
     ArtifactMembershipAliases,
+    ArtifactMembershipFragment,
     UpdateArtifact,
 )
 from wandb.sdk.artifacts._validators import FullArtifactPath
@@ -245,7 +246,10 @@ def test_linked_save_preserves_portfolio_membership_and_diffs_its_aliases(mocker
         "portfolio-entity"
     )
     artifact = Artifact._from_attrs(
-        path, source, service_api, membership=portfolio_membership
+        path,
+        source,
+        service_api,
+        membership=ArtifactMembershipFragment.model_validate(portfolio_membership),
     )
     mocker.patch.object(artifact, "_is_source_project_read_only", return_value=False)
     assert artifact.is_link is True
