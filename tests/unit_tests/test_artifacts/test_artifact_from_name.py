@@ -183,7 +183,7 @@ def test_from_name_defers_all_alias_pages_and_uses_canonical_identity():
     assert first_alias_vars["entity"] == "canonical-entity"
     assert first_alias_vars["project"] == "canonical-project"
     assert first_alias_vars["cursor"] is None
-    assert first_alias_vars["perPage"] == 100
+    assert first_alias_vars["perPage"] == 1_000
     assert artifact._saved_aliases == ["first", "best"]
     assert artifact.aliases == ["first", "best"]
     assert service_api.execute_graphql.call_count == 3
