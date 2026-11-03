@@ -15,7 +15,13 @@ _PATH = FullArtifactPath(
 )
 
 
-def _membership_data(*, flat_aliases=None, version_index=3):
+def _membership_data(
+    *,
+    flat_aliases=None,
+    version_index=3,
+    canonical_entity="canonical-entity",
+    canonical_project="canonical-project",
+):
     artifact = ArtifactFragment(
         name="test-collection",
         version_index=version_index,
@@ -54,8 +60,8 @@ def _membership_data(*, flat_aliases=None, version_index=3):
             "project": {
                 "id": "UHJvamVjdDox",
                 "internalId": "UHJvamVjdEludGVybmFsSWQ6MQ==",
-                "name": "canonical-project",
-                "entity": {"name": "canonical-entity"},
+                "name": canonical_project,
+                "entity": {"name": canonical_entity},
             },
         },
         "artifact": artifact,
@@ -197,11 +203,21 @@ def test_copy_as_link_does_not_inherit_source_pending_aliases():
 
 
 def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
+    from wandb.sdk.artifacts._generated import UPDATE_ARTIFACT_GQL
+
+    # Canonical entity/project match the source: a non-link artifact, so
+    # `_update()` goes straight to `UpdateArtifact` instead of first calling
+    # `_is_source_project_read_only()` -- which would otherwise consume the
+    # mocked `UpdateArtifact` response as an `IsProjectReadOnly` response
+    # (truthy either way) and skip the mutation without anyone noticing.
     service_api = _service_api(
-        _membership_data(),
+        _membership_data(
+            canonical_entity="source-entity", canonical_project="source-project"
+        ),
         Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
     )
     artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+    assert artifact.is_link is False
     add_aliases = mocker.patch.object(artifact, "_add_aliases")
     delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
     mocker.patch.object(artifact, "_assign_attrs")
@@ -209,18 +225,26 @@ def test_update_skips_alias_fetch_when_aliases_untouched(mocker):
     artifact._update()
 
     assert service_api.execute_graphql.call_count == 2
+    assert service_api.execute_graphql.call_args.args[0] == UPDATE_ARTIFACT_GQL
     add_aliases.assert_not_called()
     delete_aliases.assert_not_called()
     assert artifact._aliases is None
 
 
 def test_update_diffs_explicit_alias_edit_against_fetched_aliases(mocker):
+    from wandb.sdk.artifacts._generated import UPDATE_ARTIFACT_GQL
+
+    # See the comment in the previous test: a non-link fixture, so the
+    # mutation actually runs instead of being silently skipped.
     service_api = _service_api(
-        _membership_data(),
+        _membership_data(
+            canonical_entity="source-entity", canonical_project="source-project"
+        ),
         _alias_page(["old"]),
         Mock(result=Mock(artifact=Mock(), artifact_membership=None)),
     )
     artifact = Artifact._from_name(path=_PATH, service_api=service_api)
+    assert artifact.is_link is False
     artifact.aliases = ["new"]
     add_aliases = mocker.patch.object(artifact, "_add_aliases")
     delete_aliases = mocker.patch.object(artifact, "_delete_aliases")
@@ -228,6 +252,12 @@ def test_update_diffs_explicit_alias_edit_against_fetched_aliases(mocker):
 
     artifact._update()
 
+    expected_target = FullArtifactPath(
+        prefix=artifact.entity, project=artifact.project, name="test-collection"
+    )
     assert add_aliases.call_args.args[0] == {"new"}
+    assert add_aliases.call_args.kwargs["target"] == expected_target
     assert delete_aliases.call_args.args[0] == {"old"}
+    assert delete_aliases.call_args.kwargs["target"] == expected_target
     assert service_api.execute_graphql.call_count == 3
+    assert service_api.execute_graphql.call_args.args[0] == UPDATE_ARTIFACT_GQL
