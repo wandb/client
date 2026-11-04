@@ -3057,6 +3057,8 @@ pub enum ServerFeature {
     /// Indicates that the server supports returning artifactMembership on the
     /// createArtifact, updateArtifact, and commitArtifact mutation payloads.
     ArtifactMembershipOnArtifactPayload = 39,
+    /// Indicates that the server supports automation event SANDBOX_STATE.
+    AutomationEventSandboxState = 40,
 }
 impl ServerFeature {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3130,6 +3132,7 @@ impl ServerFeature {
             Self::ArtifactMembershipOnArtifactPayload => {
                 "ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD"
             }
+            Self::AutomationEventSandboxState => "AUTOMATION_EVENT_SANDBOX_STATE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3208,6 +3211,7 @@ impl ServerFeature {
             "ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD" => {
                 Some(Self::ArtifactMembershipOnArtifactPayload)
             }
+            "AUTOMATION_EVENT_SANDBOX_STATE" => Some(Self::AutomationEventSandboxState),
             _ => None,
         }
     }
