@@ -1,0 +1,535 @@
+"""Browser login flow and the credentials file it writes."""
+
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import pathlib
+import socket
+import sys
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable
+
+import pytest
+from wandb.errors import AuthenticationError
+from wandb.sdk.lib import ipython
+from wandb.sdk.lib.wbauth import browser_login
+from wandb.sdk.lib.wbauth.host_url import HostUrl
+
+HOST = HostUrl("https://test-host")
+
+
+class FakeResponse:
+    """Stand-in for requests.Response."""
+
+    def __init__(self, *, status_code: int = 200, body: object = None) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    @property
+    def ok(self) -> bool:
+        return self.status_code < 400
+
+    def json(self) -> object:
+        if self._body is None:
+            raise ValueError("not JSON")
+        return self._body
+
+
+@pytest.fixture
+def token_endpoint(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Capture token requests and answer them successfully."""
+    requests_made: list[dict] = []
+
+    def fake_post(url: str, *, data: dict, **kwargs: object) -> FakeResponse:
+        requests_made.append({"url": url, "data": data, **kwargs})
+        return FakeResponse(
+            body={
+                "access_token": "wb_at_new",
+                "refresh_token": "wb_rt_new",
+                "expires_in": 3600,
+                "token_type": "bearer",
+            }
+        )
+
+    monkeypatch.setattr(browser_login.requests, "post", fake_post)
+    return requests_made
+
+
+def complete_login_in_browser(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    query: dict[str, str] | None = None,
+    redirect_target: dict[str, str] | None = None,
+    responded: threading.Event | None = None,
+    before_redirect: Callable[[str], None] | None = None,
+) -> dict[str, str]:
+    """Hit the loopback redirect in place of a browser.
+
+    Returns the query the CLI put on the authorization URL. Pass
+    redirect_target to record where the loopback response sends the browser,
+    and before_redirect to act on the redirect URI first.
+    """
+    captured: dict[str, str] = {}
+
+    def fake_open(url: str) -> bool:
+        parsed = urllib.parse.urlparse(url)
+        params = dict(urllib.parse.parse_qsl(parsed.query))
+        captured.update(params)
+        captured["path"] = parsed.path
+
+        callback = dict(query or {"code": "auth-code"})
+        callback.setdefault("state", params["state"])
+        redirect = f"{params['redirect_uri']}?{urllib.parse.urlencode(callback)}"
+
+        def hit_loopback() -> None:
+            try:
+                if before_redirect is not None:
+                    before_redirect(params["redirect_uri"])
+                if redirect_target is None:
+                    urllib.request.urlopen(redirect).read()
+                else:
+                    _open_without_following(redirect, redirect_target)
+            except (urllib.error.URLError, ConnectionError):
+                pass
+            finally:
+                if responded is not None:
+                    responded.set()
+
+        threading.Thread(target=hit_loopback, daemon=True).start()
+        return True
+
+    monkeypatch.setattr(browser_login, "_open_browser", fake_open)
+    return captured
+
+
+def _open_without_following(url: str, redirect_target: dict[str, str]) -> None:
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            redirect_target["location"] = newurl
+            return None
+
+    try:
+        urllib.request.build_opener(NoRedirect).open(url).read()
+    except urllib.error.HTTPError:
+        pass
+
+
+def test_login_exchanges_the_code_for_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    complete_login_in_browser(monkeypatch)
+
+    tokens = browser_login.login(host=HOST, timeout=10)
+
+    assert tokens.access_token == "wb_at_new"
+    assert tokens.refresh_token == "wb_rt_new"
+
+    assert len(token_endpoint) == 1
+    sent = token_endpoint[0]
+    assert sent["url"] == "https://test-host/oidc/token"
+    assert sent["data"]["grant_type"] == "authorization_code"
+    assert sent["data"]["code"] == "auth-code"
+    assert sent["data"]["client_id"] == browser_login.CLI_CLIENT_ID
+
+
+def test_loopback_hands_the_tab_off_to_the_success_page(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    redirect_target: dict[str, str] = {}
+    responded = threading.Event()
+    complete_login_in_browser(
+        monkeypatch, redirect_target=redirect_target, responded=responded
+    )
+
+    browser_login.login(host=HOST, timeout=10)
+
+    assert responded.wait(timeout=10)
+    assert redirect_target["location"] == f"{HOST.app_url}/cli-login-success"
+
+
+@pytest.mark.parametrize(
+    "query, message",
+    [
+        (
+            {"error": "access_denied", "error_description": "You cancelled."},
+            "You cancelled.",
+        ),
+        ({"error": "server_error", "error_description": "Oops."}, "Oops."),
+        ({"error": "invalid_scope"}, "invalid_scope"),
+        ({"foo": "bar"}, "did not include an authorization code"),
+    ],
+)
+def test_loopback_hands_a_failed_login_off_to_the_cancelled_page(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+    query: dict[str, str],
+    message: str,
+):
+    redirect_target: dict[str, str] = {}
+    responded = threading.Event()
+    complete_login_in_browser(
+        monkeypatch,
+        query=query,
+        redirect_target=redirect_target,
+        responded=responded,
+    )
+
+    with pytest.raises(AuthenticationError, match=message):
+        browser_login.login(host=HOST, timeout=10)
+
+    assert responded.wait(timeout=10)
+    assert redirect_target["location"] == f"{HOST.app_url}/cli-login-cancelled"
+    assert token_endpoint == []
+
+
+def test_loopback_hands_a_failed_exchange_off_to_the_cancelled_page(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    redirect_target: dict[str, str] = {}
+    responded = threading.Event()
+    complete_login_in_browser(
+        monkeypatch, redirect_target=redirect_target, responded=responded
+    )
+    monkeypatch.setattr(
+        browser_login.requests,
+        "post",
+        lambda *a, **k: FakeResponse(
+            status_code=400,
+            body={"error": "invalid_grant", "error_description": "Code expired."},
+        ),
+    )
+
+    with pytest.raises(AuthenticationError, match="Code expired."):
+        browser_login.login(host=HOST, timeout=10)
+
+    assert responded.wait(timeout=10)
+    assert redirect_target["location"] == f"{HOST.app_url}/cli-login-cancelled"
+
+
+def test_login_opens_the_consent_page_with_a_pkce_challenge(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    captured = complete_login_in_browser(monkeypatch)
+
+    browser_login.login(host=HOST, timeout=10)
+
+    assert captured["path"] == "/cli-login"
+    assert urllib.parse.urlparse(captured["redirect_uri"]).hostname == "127.0.0.1"
+    assert captured["response_type"] == "code"
+    assert captured["code_challenge_method"] == "S256"
+    assert captured["code_challenge"]
+    assert "code_verifier" not in captured
+    assert token_endpoint[0]["data"]["code_verifier"]
+
+
+def test_login_ignores_a_callback_with_the_wrong_state(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    def send_stray_callbacks(redirect_uri: str) -> None:
+        for state in ("not-the-state-we-sent", "\u00e9", ""):
+            query = urllib.parse.urlencode({"code": "stray-code", "state": state})
+            with pytest.raises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(f"{redirect_uri}?{query}")
+            assert error.value.code == 400
+
+    complete_login_in_browser(monkeypatch, before_redirect=send_stray_callbacks)
+
+    browser_login.login(host=HOST, timeout=10)
+
+    assert [request["data"]["code"] for request in token_endpoint] == ["auth-code"]
+
+
+def test_login_is_not_stalled_by_an_idle_connection(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    monkeypatch.setattr(browser_login._CallbackHandler, "timeout", 0.1)
+    idle_connections: list[socket.socket] = []
+
+    def connect_and_stay_silent(redirect_uri: str) -> None:
+        port = urllib.parse.urlparse(redirect_uri).port
+        idle_connections.append(socket.create_connection(("127.0.0.1", port)))
+
+    complete_login_in_browser(monkeypatch, before_redirect=connect_and_stay_silent)
+
+    try:
+        tokens = browser_login.login(host=HOST, timeout=10)
+    finally:
+        for connection in idle_connections:
+            connection.close()
+
+    assert tokens.refresh_token == "wb_rt_new"
+
+
+def test_login_rejects_a_response_without_a_refresh_token(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    complete_login_in_browser(monkeypatch)
+    monkeypatch.setattr(
+        browser_login.requests,
+        "post",
+        lambda *a, **k: FakeResponse(body={"access_token": "wb_at_new"}),
+    )
+
+    with pytest.raises(AuthenticationError, match="incomplete token response"):
+        browser_login.login(host=HOST, timeout=10)
+
+
+def test_login_honors_disabled_tls_verification(
+    monkeypatch: pytest.MonkeyPatch,
+    token_endpoint: list[dict],
+):
+    complete_login_in_browser(monkeypatch)
+
+    browser_login.login(host=HOST, timeout=10, verify=False)
+
+    assert token_endpoint[0]["verify"] is False
+
+
+def test_login_times_out_waiting_for_the_browser(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(browser_login, "_open_browser", lambda url: True)
+
+    with pytest.raises(TimeoutError):
+        browser_login.login(host=HOST, timeout=0.1)
+
+
+def some_tokens(refresh_token: str = "wb_rt_stored") -> browser_login.TokenSet:
+    return browser_login.TokenSet(
+        access_token="wb_at_stored",
+        refresh_token=refresh_token,
+        expires_at=datetime.datetime(2030, 1, 1, tzinfo=datetime.timezone.utc),
+    )
+
+
+def test_credentials_round_trip(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+
+    browser_login.save_credentials(path, HOST, some_tokens())
+    loaded = browser_login.load_credentials(path, HOST)
+
+    assert loaded == some_tokens()
+
+
+def test_credentials_are_written_where_core_can_read_them(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+
+    browser_login.save_credentials(path, HOST, some_tokens())
+
+    contents = json.loads(path.read_text())
+    assert contents == {
+        "credentials": {},
+        "user_credentials": {
+            "https://test-host": {
+                "expires_at": "2030-01-01 00:00:00",
+                "access_token": "wb_at_stored",
+                "refresh_token": "wb_rt_stored",
+            }
+        },
+    }
+
+
+@pytest.mark.parametrize("contents", ["{not json", "[]"])
+def test_saving_and_clearing_do_not_overwrite_a_corrupt_file(
+    tmp_path: pathlib.Path, contents: str
+):
+    path = tmp_path / "credentials.json"
+    path.write_text(contents)
+
+    with pytest.raises(AuthenticationError):
+        browser_login.save_credentials(path, HOST, some_tokens())
+    with pytest.raises(AuthenticationError):
+        browser_login.clear_credentials(path, HOST)
+
+    assert path.read_text() == contents
+
+
+def test_saving_leaves_an_identity_token_exchange_alone(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    workload = {
+        "expires_at": "2030-01-01 00:00:00",
+        "access_token": "wb_at_federated",
+        "refresh_token": "wb_rt_federated",
+    }
+    path.write_text(json.dumps({"credentials": {"https://test-host": workload}}))
+
+    browser_login.save_credentials(path, HOST, some_tokens())
+    browser_login.clear_credentials(path, HOST)
+
+    contents = json.loads(path.read_text())
+    assert contents["credentials"] == {"https://test-host": workload}
+    assert contents["user_credentials"] == {}
+
+
+def test_save_waits_for_the_core_credentials_lock(tmp_path: pathlib.Path):
+    if sys.platform == "win32":
+        pytest.skip("this test takes the lock with flock")
+
+    import fcntl
+
+    path = tmp_path / "credentials.json"
+    fd = os.open(str(path) + ".lock", os.O_RDWR | os.O_CREAT, 0o666)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    finished = threading.Event()
+
+    def save() -> None:
+        browser_login.save_credentials(path, HOST, some_tokens())
+        finished.set()
+
+    thread = threading.Thread(target=save)
+    thread.start()
+    try:
+        assert not finished.wait(0.2)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        assert finished.wait(2)
+    finally:
+        os.close(fd)
+        thread.join(timeout=2)
+
+    assert browser_login.load_credentials(path, HOST).refresh_token == "wb_rt_stored"
+
+
+def test_saving_reports_a_file_that_cannot_be_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+):
+    def deny(*args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(os, "replace", deny)
+
+    with pytest.raises(AuthenticationError, match="Could not write"):
+        browser_login.save_credentials(
+            tmp_path / "credentials.json", HOST, some_tokens()
+        )
+
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".credentials-")]
+
+
+def test_credentials_are_not_world_readable(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+
+    browser_login.save_credentials(path, HOST, some_tokens())
+
+    assert path.stat().st_mode & 0o077 == 0
+
+
+def test_saving_leaves_other_hosts_alone(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    other = HostUrl("https://other-host")
+
+    browser_login.save_credentials(path, other, some_tokens("wb_rt_other"))
+    browser_login.save_credentials(path, HOST, some_tokens())
+
+    assert browser_login.load_credentials(path, other).refresh_token == "wb_rt_other"
+    assert browser_login.load_credentials(path, HOST).refresh_token == "wb_rt_stored"
+
+
+def test_loading_a_host_that_is_not_stored(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    browser_login.save_credentials(path, HostUrl("https://other-host"), some_tokens())
+
+    assert browser_login.load_credentials(path, HOST) is None
+
+
+def test_loading_a_missing_file(tmp_path: pathlib.Path):
+    assert browser_login.load_credentials(tmp_path / "nope.json", HOST) is None
+
+
+def test_loading_a_corrupt_file(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    path.write_text("{not json")
+
+    assert browser_login.load_credentials(path, HOST) is None
+
+
+def test_loading_ignores_an_identity_token_entry(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    path.write_text(
+        json.dumps(
+            {
+                "credentials": {
+                    "https://test-host": {
+                        "expires_at": "2030-01-01 00:00:00",
+                        "access_token": "wb_at_federated",
+                        "refresh_token": "wb_rt_federated",
+                    }
+                }
+            }
+        )
+    )
+
+    assert browser_login.load_credentials(path, HOST) is None
+
+
+def test_clearing_removes_and_returns_the_login(tmp_path: pathlib.Path):
+    path = tmp_path / "credentials.json"
+    browser_login.save_credentials(path, HOST, some_tokens())
+
+    cleared = browser_login.clear_credentials(path, HOST)
+
+    assert cleared.refresh_token == "wb_rt_stored"
+    assert browser_login.load_credentials(path, HOST) is None
+
+
+def test_clearing_when_not_logged_in(tmp_path: pathlib.Path):
+    assert browser_login.clear_credentials(tmp_path / "nope.json", HOST) is None
+
+
+def test_can_open_browser_rejects_a_remote_shell(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SSH_CONNECTION", "10.0.0.1 22 10.0.0.2 22")
+
+    assert browser_login.can_open_browser() is False
+
+
+def test_can_open_browser_rejects_a_notebook(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    monkeypatch.delenv("SSH_TTY", raising=False)
+    monkeypatch.setattr(ipython, "in_jupyter", lambda: True)
+
+    assert browser_login.can_open_browser() is False
+
+
+def test_can_open_browser_rejects_a_non_interactive_process(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    monkeypatch.delenv("SSH_TTY", raising=False)
+    monkeypatch.setattr(ipython, "in_jupyter", lambda: False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+
+    assert browser_login.can_open_browser() is False
+
+
+def test_revoke_sends_the_refresh_token(monkeypatch: pytest.MonkeyPatch):
+    sent: dict = {}
+
+    def fake_post(url: str, *, data: dict, **kwargs: object) -> FakeResponse:
+        sent.update({"url": url, "data": data, **kwargs})
+        return FakeResponse(body={})
+
+    monkeypatch.setattr(browser_login.requests, "post", fake_post)
+
+    browser_login.revoke(host=HOST, refresh_token="wb_rt_stored")
+
+    assert sent["url"] == "https://test-host/oidc/revoke"
+    assert sent["data"]["token"] == "wb_rt_stored"
+    assert sent["data"]["token_type_hint"] == "refresh_token"
+
+
+def test_revoke_reports_a_failure(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        browser_login.requests,
+        "post",
+        lambda *a, **k: FakeResponse(status_code=500, body=None),
+    )
+
+    with pytest.raises(AuthenticationError, match="Failed to log out"):
+        browser_login.revoke(host=HOST, refresh_token="wb_rt_stored")
