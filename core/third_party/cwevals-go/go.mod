@@ -1,6 +1,6 @@
 module github.com/wandb/cwevals-go
 
-go 1.26
+go 1.26.10
 
 require (
 	github.com/google/uuid v1.3.0
