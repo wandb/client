@@ -8,7 +8,7 @@
 
 This is a copy of the generated CoreWeave Evaluations (CES) Go SDK from
 `services/evaluations/generated/go` in wandb/core at commit
-`35fbeaaf874fcf2ac55727e4474843eb254a7c29` (`kelu/ces-stainless-case`), without
+`7d0cb3f9afcf91a77e529dc732a15d4801000881` (`kelu/ces-stainless-case`), without
 the files that `wandb/cwevals-go` releases leave out or that only run its
 own tooling.
 
