@@ -24,6 +24,7 @@ Section headings should be at level 3 (e.g. `### Added`).
 
 ### Changed
 
+- Unparseable automations are skipped when listing automations via `Api.automations()` (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13287)
 - Identity token logins now stay signed in after the identity token has been used, when the JWT issuer is configured to allow it: the W&B server returns a refresh token that renews the access token until the issuer's session timeout (@ckacal in https://github.com/wandb/wandb/pull/13082)
 
 ### Fixed
