@@ -27,6 +27,7 @@ Section headings should be at level 3 (e.g. `### Added`).
 
 ### Fixed
 
+- Tables with integer column names now preserve their column types when read from artifacts, allowing rows to be added and the table to be saved again.
 - `Api.automations()` lists push notification automations (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13282)
 - Installing `wandb` from source on Android (Termux) now builds for Android instead of failing on a glibc Linux Rust target (@dmitryduev in https://github.com/wandb/wandb/pull/13289)
 - Launch agents in secure mode now reject jobs with SageMaker or Vertex resource arguments (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13202)
