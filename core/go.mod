@@ -32,7 +32,7 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.12.1
 	github.com/vektah/gqlparser/v2 v2.5.64
-	github.com/wandb/core/services/evaluations/generated/go v0.0.0
+	github.com/wandb/cwevals-go v0.0.0
 	github.com/wandb/simplejsonext v0.0.0-20260707165459-87e0408255a5
 	github.com/zeebo/xxh3 v1.1.0
 	go.opentelemetry.io/otel v1.47.0
@@ -161,6 +161,6 @@ exclude (
 	github.com/goccy/go-json v0.11.1
 )
 
-// TODO: DO NOT MERGE. Temporary copy of the unpublished CES Go SDK.
-// Remove this and third_party/cesgo once the SDK is published.
-replace github.com/wandb/core/services/evaluations/generated/go => ./third_party/cesgo
+// TODO: DO NOT MERGE. Temporary copy of the CES Go SDK until it is published.
+// Remove this and third_party/cwevals-go, then require a published version.
+replace github.com/wandb/cwevals-go => ./third_party/cwevals-go
