@@ -30,13 +30,18 @@ class _RawProjectTriggers(GQLResult):
     triggers: list[_RawTrigger]
 
 
-def _parse_automation(node: _RawTrigger) -> Automation | None:
+def _parse_automation(node: _RawTrigger, *, skip: bool) -> Automation | None:
     """Parse a single trigger node, or return None if this SDK can't parse it.
 
     Servers can return automations with scopes, events, or actions that this
     version of the SDK doesn't know about, e.g. a newly added action type, or a
     type whose GraphQL fragment was omitted because the server doesn't advertise
     the matching feature flag. Skip those instead of failing the whole listing.
+
+    If `skip` is False, raise a `ValueError` instead. Lookups by name must not
+    skip: names are only unique within a scope, so skipping one match could
+    make the lookup silently return another automation with the same name, or
+    report that no automation exists.
     """
     from wandb.automations import Automation
     from wandb.automations._generated import TriggerFields
@@ -44,6 +49,12 @@ def _parse_automation(node: _RawTrigger) -> Automation | None:
     try:
         return Automation.model_validate(TriggerFields.model_validate(node))
     except ValidationError as e:
+        if not skip:
+            msg = (
+                f"Automation {node.get('name')!r} can't be parsed by this version"
+                " of wandb. Upgrade wandb to fetch it."
+            )
+            raise ValueError(msg) from e
         logger.debug(
             "Skipping automation %r (id=%r) that could not be parsed: %s",
             node.get("name"),
@@ -135,7 +146,9 @@ class _LegacyAutomationsPaginator(
         # Project.triggers doesn't support filters, so we have to filter client-side.
         if name := self._name:
             triggers = [t for t in triggers if t.get("name") == name]
-        return filter(None, map(_parse_automation, triggers))
+        # Don't skip unparseable automations when looking one up by name.
+        skip = not self._name
+        return filter(None, (_parse_automation(t, skip=skip) for t in triggers))
 
     @override
     def convert_objects(self) -> Iterator[Automation]:
@@ -211,6 +224,10 @@ class EntityAutomations(
         from wandb._pydantic import to_json
         from wandb.automations._compat import omit_automation_fragments
 
+        # Only skip unparseable automations when listing without a filter, e.g.
+        # not when looking one up by name (see `_parse_automation`).
+        self._skip_unparseable = not filter
+
         if self.QUERY is None:
             from wandb.automations._generated import GET_ENTITY_AUTOMATIONS_GQL
 
@@ -245,7 +262,7 @@ class EntityAutomations(
 
     @override
     def _convert(self, node: _RawTrigger) -> Automation | None:
-        return _parse_automation(node)
+        return _parse_automation(node, skip=self._skip_unparseable)
 
 
 Automations: TypeAlias = LegacyAutomations  # For now

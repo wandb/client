@@ -6,7 +6,7 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
 from wandb.apis.public import automations as automations_module
 from wandb.apis.public.automations import EntityAutomations, LegacyEntityAutomations
 
@@ -198,3 +198,22 @@ def test_legacy_entity_automations_continues_past_pages_without_name_match():
     )
 
     assert [a.name for a in automations] == ["wanted"]
+
+
+@mark.parametrize(
+    ("paginator_cls", "page", "lookup"),
+    [
+        (EntityAutomations, _entity_page, {"filter": {"name": "dupe"}}),
+        (LegacyEntityAutomations, _legacy_page, {"name": "dupe"}),
+    ],
+    ids=["entity", "legacy"],
+)
+def test_lookup_by_name_raises_on_unparseable(paginator_cls, page, lookup):
+    # Names are only unique within a scope, so a name lookup can match both an
+    # automation we can parse and one we can't. Skipping the latter would make
+    # `Api.automation()` silently return the wrong one.
+    response = page([_trigger("dupe"), _trigger("dupe", action={})])
+    paginator = paginator_cls(_service_api(response), entity="my-entity", **lookup)
+
+    with raises(ValueError, match="'dupe' can't be parsed"):
+        list(paginator)
