@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import wandb
 from wandb.analytics import get_telemetry_recorder
 from wandb.analytics.opentelemetry.opentelemetry_proxy import LowCardinalityAttributes
-from wandb.apis.public.service_api import ServiceApi
 from wandb.errors import UsageError
 from wandb.sdk.data_types.base_types.media import Media
 from wandb.sdk.data_types.base_types.wb_value import WBValue
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
     )
     from coreweave_evaluations.types.eval_tables.row_add_params import Row as _CESRow
 
+    from wandb.apis.public.service_api import ServiceApi
     from wandb.sdk.data_types.table import ColumnKey, LogMode
     from wandb.sdk.wandb_run import Run as LocalRun
 
@@ -193,6 +193,8 @@ class CESWriter:
 
     def bind_to_run(self, run: LocalRun, key: str, step: int | str) -> None:
         """Bind the run and derive a stable retry identity for this log location."""
+        from wandb.apis.public.service_api import ServiceApi
+
         if not run.entity or not run.project:
             raise UsageError("CES EvalTable logging requires a W&B entity and project.")
         # CES replays the same key and body, but rejects a reused key whose body
@@ -230,7 +232,12 @@ class CESWriter:
         base_url = _ces_base_url(bound_run.service_api.base_url)
 
         # Import lazily so the CES client only loads when a CES EvalTable is written.
-        from coreweave_evaluations import Client
+        try:
+            from coreweave_evaluations import Client
+        except ImportError as exc:
+            raise UsageError(
+                "CES EvalTable logging requires the coreweave_evaluations package."
+            ) from exc
 
         write_payloads = self._build_write_payloads(name=name, rows=rows)
         self._record_media_telemetry(write_payloads)
