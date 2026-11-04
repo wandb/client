@@ -23,7 +23,7 @@ go get -u 'github.com/wandb/cwevals-go@v0.0.1'
 
 ## Requirements
 
-This library requires Go 1.26+.
+This library requires Go 1.26.10+.
 
 ## Usage
 
