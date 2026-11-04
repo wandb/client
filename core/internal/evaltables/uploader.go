@@ -18,8 +18,8 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 
-	ces "github.com/wandb/core/services/evaluations/generated/go"
-	"github.com/wandb/core/services/evaluations/generated/go/option"
+	ces "github.com/wandb/cwevals-go"
+	"github.com/wandb/cwevals-go/option"
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/gql"
