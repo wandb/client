@@ -160,6 +160,36 @@ def test_ces_eval_table_writes_columns_rows_and_version(
     assert et._immutable_write_result.logged_id == "evaluation-version-1"
 
 
+def test_ces_eval_table_without_inputs_keys_rows_by_position(
+    deliver_log_eval_table,
+    run,
+):
+    et = wandb.EvalTable(
+        columns=["answer", "correct"],
+        data=[["4", True], ["5", False]],
+        score_columns=["correct"],
+        backend="ces",
+    )
+
+    run.log({"eval": et})
+
+    [request] = _sent(deliver_log_eval_table)
+    assert _rows(request) == [
+        {
+            "input": None,
+            "output": {"answer": "4"},
+            "scores": {"correct": True},
+            "example_key": "1",
+        },
+        {
+            "input": None,
+            "output": {"answer": "5"},
+            "scores": {"correct": False},
+            "example_key": "2",
+        },
+    ]
+
+
 def test_ces_eval_table_stubs_media_until_native_support_exists(
     deliver_log_eval_table,
     mock_wandb_log,
@@ -277,9 +307,10 @@ def test_ces_eval_table_rejects_oversized_row_before_network(
 ):
     value = "large" * 100
     row = {
-        "input": {"row": 0},
+        "input": None,
         "output": {"value": value},
         "scores": {},
+        "example_key": "1",
     }
     body_size = len(ces._encode_json({"rows": [row]}))
     monkeypatch.setattr(ces, "_MAX_REQUEST_BODY_BYTES", body_size)
@@ -348,7 +379,6 @@ def test_ces_eval_table_infers_python_and_numpy_integers(
 
     [request] = _sent(deliver_log_eval_table)
     assert _as_dicts(request.dataset_fields) == [
-        {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "python_int", "value_type": "integer"},
         {"source": "output", "name": "numpy_int", "value_type": "integer"},
         {"source": "output", "name": "numeric", "value_type": "number"},
@@ -370,7 +400,6 @@ def test_ces_eval_table_classifies_integer_valued_floats_as_numbers(
 
     [request] = _sent(deliver_log_eval_table)
     assert _as_dicts(request.dataset_fields) == [
-        {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "value", "value_type": "number"},
     ]
 
@@ -387,7 +416,6 @@ def test_ces_eval_table_serializes_nan_as_typed_null(deliver_log_eval_table, run
 
     [request] = _sent(deliver_log_eval_table)
     assert _as_dicts(request.dataset_fields) == [
-        {"source": "input", "name": "row", "value_type": "integer"},
         {"source": "output", "name": "value", "value_type": "number"},
     ]
     assert _rows(request)[0]["output"] == {"value": None}

@@ -12,6 +12,7 @@ from ._generated import (
     GenericWebhookActionFields,
     NoOpActionFields,
     NotificationActionFields,
+    PushNotificationActionFields,
     QueueJobActionFields,
 )
 from .actions import ActionType
@@ -124,6 +125,7 @@ ACTION_FRAGMENT_NAMES: Final[dict[ActionType, str]] = {
     ActionType.NOTIFICATION: nameof(NotificationActionFields),
     ActionType.GENERIC_WEBHOOK: nameof(GenericWebhookActionFields),
     ActionType.ARIA: nameof(AriaActionFields),
+    ActionType.PUSH_NOTIFICATION: nameof(PushNotificationActionFields),
 }
 
 
