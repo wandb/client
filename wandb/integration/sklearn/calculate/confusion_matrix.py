@@ -32,12 +32,11 @@ def confusion_matrix(
     Called by plot_confusion_matrix to visualize roc curves. Please use the function
     plot_confusion_matrix() if you wish to visualize your confusion matrix.
     """
-    cm = metrics.confusion_matrix(y_true, y_pred)
+    classes = unique_labels(y_true, y_pred)
+    cm = metrics.confusion_matrix(y_true, y_pred, labels=classes)
 
-    if labels is None:
-        classes = unique_labels(y_true, y_pred)
-    else:
-        classes = np.asarray(labels)
+    if labels is not None and np.issubdtype(classes.dtype, np.integer):
+        classes = np.asarray(labels)[classes]
 
     if normalize:
         cm = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
@@ -64,24 +63,16 @@ def confusion_matrix(
         pred_classes = classes[pred_label_indexes]
         cm = cm[:, pred_label_indexes]
 
-    table = make_table(cm, pred_classes, true_classes, labels)
+    table = make_table(cm, pred_classes, true_classes)
     chart = wandb.visualize("wandb/confusion_matrix/v1", table)
 
     return chart
 
 
-def make_table(cm, pred_classes, true_classes, labels):
+def make_table(cm, pred_classes, true_classes):
     data, count = [], 0
     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        if labels is not None and (
-            isinstance(pred_classes[j], int) or isinstance(pred_classes[0], np.integer)
-        ):
-            pred = labels[pred_classes[j]]
-            true = labels[true_classes[i]]
-        else:
-            pred = pred_classes[j]
-            true = true_classes[i]
-        data.append([pred, true, cm[i, j]])
+        data.append([pred_classes[j], true_classes[i], cm[i, j]])
         count += 1
         if utils.check_against_limit(
             count,

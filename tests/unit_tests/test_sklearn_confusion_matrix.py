@@ -37,3 +37,18 @@ def test_confusion_matrix_unknown_labels(option):
         ValueError, match=rf"{option} contains labels not in classes: \[5\]"
     ):
         calculate.confusion_matrix(Y_TRUE, Y_PRED, **{option: [0, 5]})
+
+
+def test_confusion_matrix_display_labels_with_missing_class():
+    args = dict(y_true=[0, 0, 2], y_pred=[2, 2, 2], labels=["dog", "cat", "owl"])
+
+    rows = table_rows(calculate.confusion_matrix(**args))
+    assert rows == {
+        ("dog", "dog"): 0,
+        ("owl", "dog"): 2,
+        ("dog", "owl"): 0,
+        ("owl", "owl"): 1,
+    }
+
+    rows = table_rows(calculate.confusion_matrix(**args, pred_labels=["owl"]))
+    assert rows == {("owl", "dog"): 2, ("owl", "owl"): 1}
