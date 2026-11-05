@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net/http"
 
@@ -11,6 +12,14 @@ import (
 
 // Do implements RetryableClient.Do.
 func (client *clientImpl) Do(req *retryablehttp.Request) (*http.Response, error) {
+	// A logical request keeps one ID across HTTP retries. A new Do call gets
+	// a new ID even when it reuses the caller's request object.
+	req = req.WithContext(req.Context())
+	req.Header = req.Header.Clone()
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+	req.Header.Set("X-Wandb-Request-Id", rand.Text())
 	// Track retried errors to provide a better error message at the end.
 	req = req.WithContext(withRetryObserver(req.Context()))
 
