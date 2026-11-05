@@ -57,7 +57,9 @@ if TYPE_CHECKING:
         SlackIntegration,
         WebhookIntegration,
     )
+    from wandb.automations._generated import CreateFilterTriggerInput
     from wandb.automations._inputs import WriteAutomationsKwargs
+    from wandb.automations.scopes import AutomationScope
     from wandb.sdk.artifacts.artifact import Artifact
 
     from .artifacts import (
@@ -2433,15 +2435,29 @@ class Api:
         )
         ```
         """
+        from wandb.automations._inputs import prepare_to_create
+
+        gql_input = prepare_to_create(obj, **kwargs)
+        event_obj = kwargs.get("event") or obj.event
+        assert event_obj is not None  # Input preparation requires an event.
+        return self._create_automation(
+            gql_input, automation_scope=event_obj.scope, fetch_existing=fetch_existing
+        )
+
+    def _create_automation(
+        self,
+        gql_input: CreateFilterTriggerInput,
+        *,
+        automation_scope: AutomationScope | None = None,
+        fetch_existing: bool = False,
+    ) -> Automation:
+        """Send an already prepared create request, including recovery requests."""
         from wandb.automations import Automation
         from wandb.automations._compat import (
             automation_enabled,
             omit_automation_fragments,
         )
         from wandb.automations._generated import CREATE_AUTOMATION_GQL, CreateAutomation
-        from wandb.automations._inputs import prepare_to_create
-
-        gql_input = prepare_to_create(obj, **kwargs)
 
         if not automation_enabled(
             self._service_api,
@@ -2473,12 +2489,9 @@ class Api:
                     from wandb.apis.public.automations import _fetch_existing_automation
 
                     wandb.termlog(f"Automation {name!r} exists. Fetching it instead.")
-                    event_obj = kwargs.get("event") or obj.event
-                    assert (
-                        event_obj is not None
-                    )  # Already validated by prepare_to_create.
+                    assert automation_scope is not None
                     return _fetch_existing_automation(
-                        self._service_api, event_obj.scope, name
+                        self._service_api, automation_scope, name
                     )
 
                 raise ValueError(
@@ -2593,7 +2606,14 @@ class Api:
             if status == HTTPStatus.NOT_FOUND.value:
                 if create_missing:
                     wandb.termlog(f"Automation {name!r} not found. Creating it.")
-                    return self.create_automation(obj)
+                    from wandb.automations._generated import CreateFilterTriggerInput
+
+                    # The update payload already contains the resolved event,
+                    # action, scope and keyword overrides in writable form.
+                    create_input = CreateFilterTriggerInput.model_validate(
+                        gql_input.model_dump(exclude={"id"})
+                    )
+                    return self._create_automation(create_input)
 
                 raise ValueError(
                     f"Automation {name!r} not found. Unable to edit it."
