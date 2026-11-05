@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/go-retryablehttp"
 
+	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/filestreamstats"
 	"github.com/wandb/wandb/core/internal/wboperation"
 	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
@@ -196,7 +197,7 @@ func (fs *fileStream) send(
 	defer op.Finish()
 
 	req, err := retryablehttp.NewRequestWithContext(
-		op.Context(fs.beforeRunEndCtx),
+		api.WithRequestID(op.Context(fs.beforeRunEndCtx)),
 		http.MethodPost,
 		fs.baseURL.JoinPath(fs.path).String(),
 		bytes.NewReader(requestBody),
@@ -211,7 +212,7 @@ func (fs *fileStream) send(
 
 	shouldLogStartAndEnd := !data.IsHeartbeat()
 	if shouldLogStartAndEnd {
-		fs.logRequestSummary(data)
+		fs.logRequestSummary(data, api.RequestID(req.Context()))
 	}
 
 	httpStart := time.Now()
@@ -247,7 +248,11 @@ func (fs *fileStream) send(
 		if shouldLogStartAndEnd {
 			// Log after sending to record that the backend responded and should
 			// have the data in the request.
-			fs.logger.Info("filestream: request sent", "status", resp.Status)
+			fs.logger.Info("filestream: request sent",
+				"request_id", api.RequestID(req.Context()),
+				"status", resp.Status,
+				"duration_seconds", httpDuration.Seconds(),
+			)
 		}
 	}
 
@@ -310,11 +315,11 @@ func (fs *fileStream) trackUploadOperation(
 //
 // When metrics don't show up in the UI, this helps determine whether they were
 // even sent.
-func (fs *fileStream) logRequestSummary(data *FileStreamRequestJSON) {
-	// 11 = number of attribute pairs logged below
-	attrs := make([]any, 0, 11*2)
+func (fs *fileStream) logRequestSummary(data *FileStreamRequestJSON, requestID string) {
+	// 12 = number of attribute pairs logged below
+	attrs := make([]any, 0, 12*2)
 
-	attrs = append(attrs, "total_files", len(data.Files))
+	attrs = append(attrs, "request_id", requestID, "total_files", len(data.Files))
 
 	if history, ok := data.Files[HistoryFileName]; ok {
 		attrs = append(attrs,

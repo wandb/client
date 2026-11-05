@@ -11,8 +11,12 @@ import (
 
 // Do implements RetryableClient.Do.
 func (client *clientImpl) Do(req *retryablehttp.Request) (*http.Response, error) {
+	ctx := req.Context()
+	if RequestID(ctx) == "" {
+		ctx = WithRequestID(ctx)
+	}
 	// Track retried errors to provide a better error message at the end.
-	req = req.WithContext(withRetryObserver(req.Context()))
+	req = req.WithContext(withRetryObserver(ctx))
 
 	resp, err := client.retryableHTTP.Do(req)
 	wboperation.Get(req.Context()).ClearError()
