@@ -59,7 +59,6 @@ def _saved(event):
     return node
 
 
-@mark.skip(reason="WB-42558: duplicate-create recovery loses scope")
 @mark.parametrize("scope_fixture", ["project", "artifact_collection", "team"])
 def test_duplicate_create_fetches_only_the_requested_scope(api, request, scope_fixture):
     scope = request.getfixturevalue(scope_fixture)

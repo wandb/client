@@ -237,3 +237,26 @@ mutation CreateGenericWebhookIntegration($input: CreateGenericWebhookIntegration
     }
   }
 }
+
+# Scoped duplicate-create recovery must never enumerate the viewer's projects.
+query GetProjectAutomations($scopeID: ID!) {
+  scope: projects(projectIDs: [$scopeID], first: 1) {
+    edges {
+      node {
+        triggers {
+          ...TriggerFields
+        }
+      }
+    }
+  }
+}
+
+query GetCollectionAutomations($scopeID: ID!) {
+  scope: artifactCollection(id: $scopeID) {
+    project {
+      triggers {
+        ...TriggerFields
+      }
+    }
+  }
+}
