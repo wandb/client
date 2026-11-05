@@ -27,6 +27,8 @@ Section headings should be at level 3 (e.g. `### Added`).
 
 ### Fixed
 
+- `wandb-core` allows a bounded flush on SIGINT, SIGTERM, and parent death instead of immediately discarding buffered records.
+
 - `wandb beta sync` no longer marks a run synced after a fatal filestream upload error.
 
 - `Api.automations()` lists push notification automations (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13282)

@@ -3,27 +3,18 @@ package processlib
 import (
 	"os"
 	"syscall"
-)
 
-const (
-	// Linux syscall for prctl, see x/sys/unix SYS_PRCTL
-	PRCTL_SYSCALL = 157
-	// Set the parent-death signal of the calling process, see uapi/linux/prctl.h
-	PR_SET_PDEATHSIG = 1
+	"golang.org/x/sys/unix"
 )
 
 func ShutdownOnParentExit(parentPid int) bool {
-	_, _, errno := syscall.Syscall(
-		uintptr(PRCTL_SYSCALL), uintptr(PR_SET_PDEATHSIG), uintptr(syscall.SIGKILL), 0)
-	if errno != 0 {
-		// Exit code is arbitrary as parent process is gone.
-		// Encode syscall error number in upper bits for debugging.
-		os.Exit(127 + int(errno))
+	// SIGTERM allows the installed handler to flush within its grace period.
+	// The server also polls parent lifetime if prctl is unavailable.
+	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(syscall.SIGTERM), 0, 0, 0); err != nil {
+		return false
 	}
-	// Check again because the process could have exited right before the syscall was made
 	if os.Getppid() != parentPid {
-		// Exit code is arbitrary as parent process is gone.
-		os.Exit(1)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 	}
 	return true
 }

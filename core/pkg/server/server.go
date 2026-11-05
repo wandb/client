@@ -39,7 +39,13 @@ type Server struct {
 
 	// forceShutdown reports whether Serve should return without waiting for
 	// in-flight connections to finish.
-	forceShutdown bool
+	forceShutdown       atomic.Bool
+	gracefulShutdown    atomic.Bool
+	shutdownOnce        sync.Once
+	shutdownDone        chan struct{}
+	forceDone           chan struct{}
+	forceOnce           sync.Once
+	shutdownGracePeriod time.Duration
 
 	// streamMux maps stream IDs to streams.
 	streamMux *stream.StreamMux
@@ -98,8 +104,48 @@ type Server struct {
 
 // ForceStop shuts down the server without waiting for in-flight work.
 func (s *Server) ForceStop() {
-	s.forceShutdown = true
+	s.forceShutdown.Store(true)
+	s.forceOnce.Do(func() { close(s.forceDone) })
 	s.stopServer()
+}
+
+// Shutdown gives active runs a bounded opportunity to flush. It stops IPC
+// admission first; a second signal can bypass the grace period via ForceStop.
+func (s *Server) Shutdown() {
+	s.shutdownOnce.Do(func() {
+		s.gracefulShutdown.Store(true)
+		s.stopServer()
+		go func() {
+			defer close(s.shutdownDone)
+			if s.shutdownGracePeriod <= 0 {
+				s.ForceStop()
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), s.shutdownGracePeriod)
+			defer cancel()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				// Save already-buffered records even if a connection is stuck on I/O.
+				s.streamMux.FlushTransactionLogs()
+				select {
+				case <-s.waitForConnectionsToFinish():
+				case <-ctx.Done():
+					return
+				}
+				s.streamMux.FinishAndCloseAllStreams(255)
+			}()
+			select {
+			case <-done:
+				slog.Info("server: shutdown drain completed")
+			case <-ctx.Done():
+				slog.Warn(
+					"server: shutdown grace period expired; local data may need wandb sync --include-online",
+				)
+			case <-s.forceDone:
+			}
+		}()
+	})
 }
 
 type ServerParams struct {
@@ -111,6 +157,7 @@ type ServerParams struct {
 	ParentPID           int
 	Detached            bool
 	IdleTimeout         time.Duration
+	ShutdownGracePeriod time.Duration
 }
 
 func NewServer(params ServerParams) *Server {
@@ -118,6 +165,9 @@ func NewServer(params ServerParams) *Server {
 
 	return &Server{
 		serverLifetimeCtx:    serverLifetimeCtx,
+		shutdownDone:         make(chan struct{}),
+		forceDone:            make(chan struct{}),
+		shutdownGracePeriod:  params.ShutdownGracePeriod,
 		stopServer:           stopServer,
 		streamMux:            stream.NewStreamMux(),
 		runSyncManager:       runsync.NewRunSyncManager(),
@@ -138,15 +188,19 @@ func NewServer(params ServerParams) *Server {
 func (s *Server) exitWhenParentIsGone() {
 	slog.Info("server: will exit if parent process dies", "ppid", s.parentPID)
 
+	ticker := time.NewTicker(IntervalCheckParentPidMilliseconds * time.Millisecond)
+	defer ticker.Stop()
 	for os.Getppid() == s.parentPID {
-		time.Sleep(IntervalCheckParentPidMilliseconds * time.Millisecond)
+		select {
+		case <-s.serverLifetimeCtx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 
 	slog.Info("server: parent process exited, terminating service process")
 
-	// The user process has exited, so there's no need to sync
-	// uncommitted data, and we can quit immediately.
-	s.ForceStop()
+	s.Shutdown()
 }
 
 func closeAll(listenerList []net.Listener) {
@@ -201,11 +255,18 @@ func (s *Server) Serve(portFile string) error {
 	// Stop accepting new connections.
 	closeListeners()
 
-	if s.forceShutdown {
+	if s.forceShutdown.Load() {
 		slog.Info("server: forced shutdown")
 		return nil
 	}
 
+	if s.gracefulShutdown.Load() {
+		select {
+		case <-s.shutdownDone:
+		case <-s.forceDone:
+		}
+		return nil
+	}
 	<-s.waitForConnectionsToFinish()
 	slog.Info("server: all connections closed")
 	return nil

@@ -82,3 +82,15 @@ func (sm *StreamMux) FinishAndCloseAllStreams(exitCode int32) {
 	wg.Wait()
 	slog.Debug("all streams were closed")
 }
+
+// FlushTransactionLogs flushes each active run independently of network I/O.
+func (sm *StreamMux) FlushTransactionLogs() {
+	sm.mutex.RLock()
+	streams := slices.Collect(maps.Values(sm.mux))
+	sm.mutex.RUnlock()
+	var wg sync.WaitGroup
+	for _, stream := range streams {
+		wg.Go(stream.FlushTransactionLog)
+	}
+	wg.Wait()
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
@@ -81,7 +82,8 @@ type Stream struct {
 	handler *Handler
 
 	// writerFactory is used to create the Writer component
-	writerFactory *WriterFactory
+	writerFactory     *WriterFactory
+	transactionWriter atomic.Pointer[Writer]
 
 	// flowControlFactory is used to create the FlowControl component
 	flowControlFactory *FlowControlFactory
@@ -215,6 +217,7 @@ func (s *Stream) maybeSavingToTransactionLog(
 	}
 
 	writer := s.writerFactory.New(w)
+	s.transactionWriter.Store(writer)
 	flowControl := s.flowControlFactory.New(
 		r, writer.Flush, s.recordParser,
 		FlowControlParams{
@@ -381,4 +384,14 @@ func (s *Stream) runURLAndName() (string, string, error) {
 	}
 
 	return url, upserter.DisplayName(), nil
+}
+
+// FlushTransactionLog preserves records already written to the local buffer.
+// It does not promise that queued IPC records or network uploads are complete.
+func (s *Stream) FlushTransactionLog() {
+	if w := s.transactionWriter.Load(); w != nil {
+		if err := w.Flush(); err != nil {
+			s.logger.Error("stream: shutdown log flush failed", "error", err)
+		}
+	}
 }
