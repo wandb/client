@@ -29,6 +29,7 @@ Section headings should be at level 3 (e.g. `### Added`).
 
 ### Fixed
 
+- `wandb sync` and a running `wandb-core` no longer crash on a transaction log record of a type this version does not know, such as one written by a newer version of the SDK; the record is skipped (@dmitryduev in https://github.com/wandb/wandb/pull/13300)
 - `Api.automations()` lists push notification automations (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13282)
 - Installing `wandb` from source on Android (Termux) now builds for Android instead of failing on a glibc Linux Rust target (@dmitryduev in https://github.com/wandb/wandb/pull/13289)
 - Launch agents in secure mode now reject jobs with SageMaker or Vertex resource arguments (@nicholaspun-wandb in https://github.com/wandb/wandb/pull/13202)

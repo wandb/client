@@ -163,6 +163,15 @@ func TestSendExitBeforeRunInitialization(t *testing.T) {
 	}
 }
 
+func TestSendRecord_SkipsUnknownType(t *testing.T) {
+	x := makeSender(t, gqlmock.NewMockClient())
+
+	// A record type from a newer SDK decodes with a nil RecordType.
+	x.Sender.SendRecord(&spb.Record{Num: 1}, nil)
+
+	assert.Contains(t, x.Logs.String(), "sender: skipping record of unknown type")
+}
+
 func TestSendSummaryIgnoresInboundStep(t *testing.T) {
 	fileStream := filestreamtest.NewFakeFileStream()
 	x := makeSenderWithFileStream(t, gqlmock.NewMockClient(), fileStream)

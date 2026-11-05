@@ -959,6 +959,23 @@ func TestHandleHeader(t *testing.T) {
 	)
 }
 
+func TestHandleRecord_PassesUnknownType(t *testing.T) {
+	inChan := make(chan runwork.Work, 2)
+	handler := makeHandler(t, inChan, "", true /*skipDerivedSummary*/)
+
+	// A record type from a newer SDK decodes with a nil RecordType.
+	inChan <- runwork.NoRequest(runwork.WorkRecord{Record: &spb.Record{Num: 1}})
+	inChan <- runwork.NoRequest(runwork.WorkRecord{Record: &spb.Record{
+		Num:        2,
+		RecordType: &spb.Record_Header{Header: &spb.HeaderRecord{}},
+	}})
+
+	for _, num := range []int64{1, 2} {
+		record := (<-handler.OutChan()).WorkImpl.(runwork.WorkRecord).Record
+		assert.Equal(t, num, record.GetNum())
+	}
+}
+
 func TestHandleDerivedSummary(t *testing.T) {
 	testCases := []struct {
 		name                   string

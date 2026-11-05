@@ -237,9 +237,10 @@ func (h *Handler) handleRecord(record *spb.Record, request *runwork.Request) {
 	case *spb.Record_Summary:
 		h.handleSummary(x.Summary)
 	case nil:
-		h.logger.CaptureFatalAndPanic(
-			"stream",
-			errors.New("handler: handleRecord: record type is nil"),
+		// A record type added by a newer version of the SDK.
+		h.logger.Warn(
+			"handler: skipping record of unknown type",
+			"number", record.GetNum(),
 		)
 	default:
 		h.logger.CaptureFatalAndPanic(

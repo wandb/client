@@ -409,12 +409,10 @@ func (s *Sender) sendRecord(record *spb.Record, request *runwork.Request) {
 	case *spb.Record_Artifact:
 		s.sendArtifact(record, x.Artifact)
 	case nil:
-		s.logger.CaptureFatalAndPanic(
-			"stream",
-			fmt.Errorf(
-				"sender: sendRecord: nil RecordType, number %d",
-				record.GetNum(),
-			),
+		// A record type added by a newer version of the SDK.
+		s.logger.Warn(
+			"sender: skipping record of unknown type",
+			"number", record.GetNum(),
 		)
 	default:
 		s.logger.CaptureFatalAndPanic(
