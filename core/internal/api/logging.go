@@ -26,6 +26,7 @@ func (client *clientImpl) logFinalResponseOnError(
 	// can read and close it.
 	client.logger.Error(
 		"api: HTTP error",
+		"request_id", RequestID(req.Context()),
 		"status", resp.StatusCode,
 		"method", req.Method,
 		"url", req.URL.String(),
@@ -59,10 +60,14 @@ func withRetryObservation(
 
 		switch {
 		case resp == nil && err == nil:
-			logger.Error("api: retrying HTTP request, no error or response")
+			logger.Error(
+				"api: retrying HTTP request, no error or response",
+				"request_id",
+				RequestID(ctx),
+			)
 
 		case err != nil:
-			logger.Info("api: retrying error", "error", err)
+			logger.Info("api: retrying error", "request_id", RequestID(ctx), "error", err)
 			setLastRetriedError(ctx, err.Error())
 			wboperation.Get(ctx).MarkRetryingError(err)
 
@@ -83,6 +88,7 @@ func withRetryObservation(
 
 			logger.Info(
 				"api: retrying HTTP error",
+				"request_id", RequestID(ctx),
 				"status", resp.StatusCode,
 				"url", resp.Request.URL.String(),
 				"body", bodyToLog,
