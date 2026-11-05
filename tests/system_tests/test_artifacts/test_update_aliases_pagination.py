@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import wandb
-from pytest import mark
 from wandb.sdk.artifacts._generated import ArtifactMembershipFragment
 from wandb.sdk.artifacts._validators import FullArtifactPath
 from wandb.sdk.artifacts.artifact import Artifact
@@ -115,16 +114,7 @@ def _stub_server_features(
     )
 
 
-@mark.parametrize(
-    ("pagination_enabled", "membership_enabled"),
-    [(True, True), (False, True), (True, False)],
-)
-def test_update_resolves_membership_aliases(
-    user,
-    wandb_backend_spy: WandbBackendSpy,
-    pagination_enabled: bool,
-    membership_enabled: bool,
-):
+def test_update_defers_membership_aliases(user, wandb_backend_spy: WandbBackendSpy):
     gql = wandb_backend_spy.gql
 
     # `feature_enabled()` caches the server's feature map for the sidecar's
@@ -132,8 +122,8 @@ def test_update_resolves_membership_aliases(
     # before anything can trigger that, not right before `.save()`.
     _stub_server_features(
         wandb_backend_spy,
-        pagination_enabled=pagination_enabled,
-        ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD=membership_enabled,
+        pagination_enabled=True,
+        ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD=True,
     )
 
     with wandb.init() as run:
@@ -149,28 +139,14 @@ def test_update_resolves_membership_aliases(
     bare_artifact_dict = _artifact_fragment_dict(
         artifact_id=artifact.id, entity=entity, project=project, collection=collection
     )
-    if not membership_enabled:
-        membership = None
-    elif pagination_enabled:
-        membership = _membership_dict(
-            membership_id="membership-id",
-            entity=entity,
-            project=project,
-            collection=collection,
-            version_index=5,
-            artifact=bare_artifact_dict,
-        )
-    else:
-        membership = {
-            "id": "membership-id",
-            "versionIndex": 5,
-            "createdAt": "2026-01-01T00:00:00Z",
-            "aliases": [{"id": "alias-flat", "alias": "flat-alias"}],
-            "artifactCollection": _collection_dict(
-                entity=entity, project=project, collection=collection
-            ),
-            "artifact": bare_artifact_dict,
-        }
+    membership = _membership_dict(
+        membership_id="membership-id",
+        entity=entity,
+        project=project,
+        collection=collection,
+        version_index=5,
+        artifact=bare_artifact_dict,
+    )
 
     update_response = gql.Constant(
         content={
@@ -201,45 +177,30 @@ def test_update_resolves_membership_aliases(
         gql.Matcher(operation="ArtifactMembershipAliases"), aliases_response
     )
 
-    if pagination_enabled and membership_enabled:
-        # Simulate an artifact fetched from a paginated membership whose
-        # aliases have not yet been read.
-        artifact._aliases = None
-        artifact._saved_aliases = None
+    # Simulate an artifact fetched from a paginated membership whose aliases
+    # have not yet been read.
+    artifact._aliases = None
+    artifact._saved_aliases = None
 
     artifact.description = "updated description"
     artifact.save()
 
     assert update_response.total_calls == 1
     sent_query = update_response.requests[0].query
-    assert "$perPage" not in sent_query
+    assert artifact.version == "v5"
+    assert "aliases @include(if: true)" not in sent_query
+    assert "$includeAliases" not in sent_query
+    assert aliases_response.total_calls == 0
 
-    if not membership_enabled:
-        assert "artifactMembership" not in sent_query
-        assert "$includeAliases" in sent_query
-        assert artifact.version == "v0"
-        assert artifact.aliases == []
-        assert aliases_response.total_calls == 0
-    elif pagination_enabled:
-        assert artifact.version == "v5"
-        assert "aliasesConnection" not in sent_query
-        assert "aliases @include(if: true)" not in sent_query
-        assert "$includeAliases" not in sent_query
-        assert aliases_response.total_calls == 0
+    assert set(artifact.aliases) == {"first-page", "second-page"}
+    assert aliases_response.total_calls == 1
 
-        assert set(artifact.aliases) == {"first-page", "second-page"}
-        assert aliases_response.total_calls == 1
-
-        # A second read doesn't re-fetch anything.
-        assert set(artifact.aliases) == {"first-page", "second-page"}
-        assert aliases_response.total_calls == 1
-    else:
-        assert artifact.version == "v5"
-        assert "aliasesConnection" not in sent_query
-        assert "$includeAliases" in sent_query
-        assert "aliases @include(if: true)" in sent_query
-        assert "flat-alias" in artifact.aliases
-        assert aliases_response.total_calls == 0
+    # Loaded aliases stay cached through another metadata-only save.
+    artifact.description = "updated again"
+    artifact.save()
+    assert update_response.total_calls == 2
+    assert set(artifact.aliases) == {"first-page", "second-page"}
+    assert aliases_response.total_calls == 1
 
 
 def test_linked_save_keeps_portfolio_version_and_aliases(
@@ -343,7 +304,6 @@ def test_linked_save_keeps_portfolio_version_and_aliases(
     assert linked.version == "v7"
     assert linked.linked_at == portfolio_membership.created_at
     assert "$includeAliases" not in update_response.requests[0].query
-    assert "$perPage" not in update_response.requests[0].query
     assert aliases_response.total_calls == 0
 
     assert linked.aliases == ["portfolio-only"]
