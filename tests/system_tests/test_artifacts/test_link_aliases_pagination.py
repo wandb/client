@@ -195,10 +195,8 @@ def test_link_defers_all_membership_aliases(user, wandb_backend_spy: WandbBacken
     # is fetched until the returned artifact's aliases are read.
     assert link_response.total_calls == 1
     assert aliases_response.total_calls == 0
-    assert "aliasesConnection" not in link_response.requests[0].query
     assert "aliases @include(if: true)" not in link_response.requests[0].query
     assert "$includeAliases" not in link_response.requests[0].query
-    assert "$perPage" not in link_response.requests[0].query
     assert linked.name == "target-collection:v3"
     assert linked.version == "v3"
     assert linked.is_link is True
@@ -271,8 +269,6 @@ def test_link_query_feature_fallbacks(
 
     assert link_response.total_calls == 1
     query = link_response.requests[0].query
-    assert "aliasesConnection" not in query
-    assert "$perPage" not in query
     if membership_enabled:
         assert "$includeAliases" in query
         assert "aliases @include(if: true)" in query

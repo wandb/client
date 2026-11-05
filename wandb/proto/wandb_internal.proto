@@ -1739,7 +1739,10 @@ enum ServerFeature {
   // createArtifact, updateArtifact, and commitArtifact mutation payloads.
   ARTIFACT_MEMBERSHIP_ON_ARTIFACT_PAYLOAD = 39;
 
+  // Indicates that the server supports automation event SANDBOX_STATE.
+  AUTOMATION_EVENT_SANDBOX_STATE = 40;
+
   // Indicates that the server supports paginating
   // ArtifactCollectionMembership's aliases via `aliasesConnection`.
-  ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION = 40;
+  ARTIFACT_MEMBERSHIP_ALIASES_PAGINATION = 41;
 }
