@@ -509,8 +509,16 @@ def gql_codegen(session: nox.Session) -> None:
 @nox.session(python=False, name="proto-rust", tags=["proto"])
 def proto_rust(session: nox.Session) -> None:
     """Generate Rust bindings for protobufs."""
+    _generate_proto_rust(session)
+
+
+def _generate_proto_rust(session: nox.Session) -> None:
     session.run("./core/api/proto/install-protoc.sh", "34.1", external=True)
-    session.run("./symon/tools/generate-proto.sh", external=True)
+    session.run(
+        "./symon/tools/generate-proto.sh",
+        external=True,
+        env={"PROTOC": str(pathlib.Path.home() / ".local" / "bin" / "protoc")},
+    )
 
 
 @nox.session(python=False, name="proto-go", tags=["proto"])
@@ -590,6 +598,16 @@ def proto_check_go(session: nox.Session) -> None:
             after=lambda: _generate_proto_go(session),
             in_directory=directory,
         )
+
+
+@nox.session(python=False, name="proto-check-rust", tags=["proto-check"])
+def proto_check_rust(session: nox.Session) -> None:
+    """Regenerates Rust protobuf files and ensures nothing changed."""
+    _ensure_no_diff(
+        session,
+        after=lambda: _generate_proto_rust(session),
+        in_directory="symon/src/.",
+    )
 
 
 def python_coverage_env(session: nox.Session) -> dict[str, str]:
