@@ -306,7 +306,7 @@ func (h *Handler) handleRequest(
 		h.handleRequestLinkArtifact(record, request)
 	case *spb.Request_DownloadArtifact:
 		h.handleRequestDownloadArtifact(record, request)
-	case *spb.Request_LogEvalTable:
+	case *spb.Request_UploadEvalTable:
 		h.fwdRecord(record, request)
 	case *spb.Request_Attach:
 		h.handleRequestAttach(record, request)

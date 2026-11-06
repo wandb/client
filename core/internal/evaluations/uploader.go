@@ -97,8 +97,8 @@ func newEvalTableService(params UploaderParams) (*ces.EvalTableService, error) {
 // It must be called after the run is initialized.
 func (u *Uploader) Upload(
 	ctx context.Context,
-	request *spb.LogEvalTableRequest,
-) (*spb.LogEvalTableResponse, error) {
+	request *spb.UploadEvalTableRequest,
+) (*spb.UploadEvalTableResponse, error) {
 	evalTables := u.evalTables
 	if evalTables == nil {
 		return nil, u.evalTablesErr
@@ -165,7 +165,7 @@ func (u *Uploader) Upload(
 		return nil, fmt.Errorf("evaluations: failed to cut version: %v", err)
 	}
 
-	return &spb.LogEvalTableResponse{
+	return &spb.UploadEvalTableResponse{
 		EvaluationId:        created.EvaluationID,
 		EvaluationVersionId: version.EvaluationVersionID,
 		DatasetId:           created.DatasetID,
