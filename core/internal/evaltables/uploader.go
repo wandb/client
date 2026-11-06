@@ -33,12 +33,10 @@ const (
 	idempotencyKeyVersion = "v3"
 )
 
-// Uploader uploads a run's EvalTables to CES.
 type Uploader struct {
 	graphqlClient graphql.Client
 	runHandle     *runhandle.RunHandle
 
-	// evalTables is the CES client, or nil if evalTablesErr says why not.
 	evalTables    *ces.EvalTableService
 	evalTablesErr error
 
