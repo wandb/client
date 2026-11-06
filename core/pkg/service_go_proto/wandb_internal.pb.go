@@ -9767,10 +9767,7 @@ type UploadEvalTableRequest struct {
 	// file after reading it, whether or not the upload succeeds.
 	RowsFilePath string `protobuf:"bytes,5,opt,name=rows_file_path,json=rowsFilePath,proto3" json:"rows_file_path,omitempty"`
 	// Run files referenced by the table's media cells, relative to the run's
-	// files directory.
-	//
-	// wandb-core uploads them like files saved with the "now" policy. The
-	// response does not wait for these uploads.
+	// files directory, for wandb-core to upload.
 	MediaPaths    []string      `protobuf:"bytes,6,rep,name=media_paths,json=mediaPaths,proto3" json:"media_paths,omitempty"`
 	XInfo         *XRequestInfo `protobuf:"bytes,200,opt,name=_info,json=Info,proto3" json:"_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
