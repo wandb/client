@@ -369,10 +369,7 @@ class CESWriter:
             {"name": column_name, "value_type": scorer_types[column_name]}
             for column_name in scorer_order
         ]
-        self._validate_body_size(
-            "columns", {"dataset_fields": dataset_fields, "scorers": scorers}
-        )
-        # Encode rows first so every size error precedes config updates and requests.
+        # Encode rows first so row size errors precede config updates and requests.
         rows_json = _encode_rows(normalized_rows)
         class_label_accumulator.flush(bound_run.run)
         return _CESWritePayloads(
@@ -638,12 +635,4 @@ class CESWriter:
             recorder.increment_counter(
                 "eval_table_ces_media_write_with_oversized_cells",
                 LowCardinalityAttributes(),
-            )
-
-    def _validate_body_size(self, operation: str, body: dict[str, Any]) -> None:
-        """Reject a request body at or above the CES hard limit."""
-        if len(_encode_json(body)) >= _MAX_REQUEST_BODY_BYTES:
-            raise UsageError(
-                f"CES EvalTable {operation} payload must be smaller than "
-                f"{_MAX_REQUEST_BODY_SIZE}."
             )
