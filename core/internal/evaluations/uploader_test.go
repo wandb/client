@@ -128,7 +128,7 @@ func TestUpload(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, mockGQL := newTestUploader(t, ces, projectFoundJSON)
 
-	response, err := uploader.Upload(context.Background(), &spb.LogEvalTableRequest{
+	response, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
 		Name: "my-table",
 		DatasetFields: []*spb.EvalTableField{
 			{Source: "input", Name: "prompt", ValueType: "string"},
@@ -148,7 +148,7 @@ func TestUpload(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, &spb.LogEvalTableResponse{
+	assert.Equal(t, &spb.UploadEvalTableResponse{
 		EvaluationId:        "eval-id",
 		EvaluationVersionId: "eval-version-id",
 		DatasetId:           "dataset-id",
@@ -187,7 +187,7 @@ func TestUpload(t *testing.T) {
 func TestUpload_IdempotencyKeys(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
-	request := &spb.LogEvalTableRequest{
+	request := &spb.UploadEvalTableRequest{
 		Name:     "my-table",
 		RowsJson: []string{`{}`},
 	}
@@ -235,7 +235,7 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 	}
 
 	_, err = uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t", RowsJson: rows})
+		&spb.UploadEvalTableRequest{Name: "t", RowsJson: rows})
 	require.NoError(t, err)
 
 	var batchSizes []int
@@ -256,7 +256,7 @@ func TestUpload_InvalidCESURL(t *testing.T) {
 		settings.From(&spb.Settings{XCesBaseUrl: wrapperspb.String("://bad")}))
 
 	_, err := uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t"})
+		&spb.UploadEvalTableRequest{Name: "t"})
 
 	assert.ErrorContains(t, err, "invalid CES URL")
 }
@@ -265,7 +265,7 @@ func TestUpload_NoCESURL(t *testing.T) {
 	uploader, _ := newTestUploaderWithSettings(t, projectFoundJSON, settings.New())
 
 	_, err := uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t"})
+		&spb.UploadEvalTableRequest{Name: "t"})
 
 	assert.ErrorContains(t, err, "no CES URL in settings")
 }
@@ -275,7 +275,7 @@ func TestUpload_ProjectNotFound(t *testing.T) {
 	uploader, _ := newTestUploader(t, ces, `{"project": null}`)
 
 	_, err := uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t"})
+		&spb.UploadEvalTableRequest{Name: "t"})
 
 	assert.ErrorContains(t, err, "project test-entity/test-project not found")
 	assert.Empty(t, ces.Requests())
