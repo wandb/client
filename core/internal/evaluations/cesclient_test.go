@@ -2,9 +2,6 @@ package evaluations_test
 
 import (
 	"context"
-	"errors"
-	"net/http"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,14 +16,15 @@ import (
 	"github.com/wandb/wandb/core/internal/settings"
 )
 
-func TestEvalTableService_UsesRunCredentials(t *testing.T) {
+func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	server := apitest.NewRecordingServer()
 	defer server.Close()
-	t.Setenv("CES_BASE_URL", server.URL+"/evaluations")
+	t.Setenv("CES_BASE_URL", "https://ces.example.com")
 	t.Setenv("WANDB_API_KEY", "env-api-key")
 	t.Setenv("WANDB_ACCESS_TOKEN", "env-access-token")
 	t.Setenv("CES_CUSTOM_HEADERS", "X-From-Env: yes")
 	service := evaluations.NewEvalTableService(
+		server.URL+"/evaluations",
 		evaluations.NewCESHTTPClient(
 			api.NewAPIKeyCredentialProvider("run-api-key"),
 			observabilitytest.NewTestLogger(t).Logger,
@@ -51,28 +49,4 @@ func TestEvalTableService_UsesRunCredentials(t *testing.T) {
 		"Basic YXBpOnJ1bi1hcGkta2V5", // "api:run-api-key"
 		req.Header.Get("Authorization"))
 	assert.Equal(t, "yes", req.Header.Get("X-From-Env"))
-}
-
-type recordingDoer struct{ requests []*http.Request }
-
-func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
-	d.requests = append(d.requests, req)
-	return nil, errors.New("not sent")
-}
-
-func TestEvalTableService_DefaultsToSDKURL(t *testing.T) {
-	t.Setenv("CES_BASE_URL", "")
-	require.NoError(t, os.Unsetenv("CES_BASE_URL"))
-	doer := &recordingDoer{}
-	service := evaluations.NewEvalTableService(doer)
-
-	_, _ = service.New(context.Background(), ces.EvalTableNewParams{
-		ScopeID: ces.F("scope"),
-		Name:    ces.F("table"),
-	})
-
-	require.Len(t, doer.requests, 1)
-	assert.Equal(t,
-		"https://evaluations.wandb.ai/v1/namespaces/wandb/scopes/scope/eval-tables",
-		doer.requests[0].URL.String())
 }
