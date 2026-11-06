@@ -9754,8 +9754,9 @@ type UploadEvalTableRequest struct {
 	// The table's rows in order, each a JSON object of the form
 	// {"input": {...} | null, "output": {...} | null, "scores": {...}}.
 	//
-	// Values already normalized for CES: media cells hold CES extension
-	// values, and every value matches its column's declared type.
+	// Values already normalized for CES: every value matches its column's
+	// declared type, except that media cells hold W&B media JSON with a `path`
+	// in the run's files directory or an `artifact_path`.
 	RowsJson      []string      `protobuf:"bytes,4,rep,name=rows_json,json=rowsJson,proto3" json:"rows_json,omitempty"`
 	XInfo         *XRequestInfo `protobuf:"bytes,200,opt,name=_info,json=Info,proto3" json:"_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -9836,13 +9837,12 @@ type EvalTableField struct {
 	// A CES value type: "boolean", "integer", "number", "string", or "json".
 	// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
 	ValueType string `protobuf:"bytes,3,opt,name=value_type,json=valueType,proto3" json:"value_type,omitempty"`
-	// The CES extension type of a media column, like "wandb-image", and its
-	// schema version. Both are unset for other columns.
-	// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsExtensionType
-	ExtensionType          string `protobuf:"bytes,4,opt,name=extension_type,json=extensionType,proto3" json:"extension_type,omitempty"`
-	ExtensionSchemaVersion int32  `protobuf:"varint,5,opt,name=extension_schema_version,json=extensionSchemaVersion,proto3" json:"extension_schema_version,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// The `_type` of a media column's W&B media, like "image-file", or unset
+	// for other columns. wandb-core converts the column's values to CES
+	// extension values.
+	WandbMediaType string `protobuf:"bytes,4,opt,name=wandb_media_type,json=wandbMediaType,proto3" json:"wandb_media_type,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *EvalTableField) Reset() {
@@ -9896,18 +9896,11 @@ func (x *EvalTableField) GetValueType() string {
 	return ""
 }
 
-func (x *EvalTableField) GetExtensionType() string {
+func (x *EvalTableField) GetWandbMediaType() string {
 	if x != nil {
-		return x.ExtensionType
+		return x.WandbMediaType
 	}
 	return ""
-}
-
-func (x *EvalTableField) GetExtensionSchemaVersion() int32 {
-	if x != nil {
-		return x.ExtensionSchemaVersion
-	}
-	return 0
 }
 
 type EvalTableScorer struct {
@@ -13062,14 +13055,13 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x0edataset_fields\x18\x02 \x03(\v2\x1e.wandb_internal.EvalTableFieldR\rdatasetFields\x129\n" +
 	"\ascorers\x18\x03 \x03(\v2\x1f.wandb_internal.EvalTableScorerR\ascorers\x12\x1b\n" +
 	"\trows_json\x18\x04 \x03(\tR\browsJson\x122\n" +
-	"\x05_info\x18\xc8\x01 \x01(\v2\x1c.wandb_internal._RequestInfoR\x04Info\"\xbc\x01\n" +
+	"\x05_info\x18\xc8\x01 \x01(\v2\x1c.wandb_internal._RequestInfoR\x04Info\"\x85\x01\n" +
 	"\x0eEvalTableField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"value_type\x18\x03 \x01(\tR\tvalueType\x12%\n" +
-	"\x0eextension_type\x18\x04 \x01(\tR\rextensionType\x128\n" +
-	"\x18extension_schema_version\x18\x05 \x01(\x05R\x16extensionSchemaVersion\"D\n" +
+	"value_type\x18\x03 \x01(\tR\tvalueType\x12(\n" +
+	"\x10wandb_media_type\x18\x04 \x01(\tR\x0ewandbMediaType\"D\n" +
 	"\x0fEvalTableScorer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +

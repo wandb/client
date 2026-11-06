@@ -2697,8 +2697,9 @@ pub struct UploadEvalTableRequest {
     /// The table's rows in order, each a JSON object of the form
     /// {"input": {...} | null, "output": {...} | null, "scores": {...}}.
     ///
-    /// Values already normalized for CES: media cells hold CES extension
-    /// values, and every value matches its column's declared type.
+    /// Values already normalized for CES: every value matches its column's
+    /// declared type, except that media cells hold W&B media JSON with a `path`
+    /// in the run's files directory or an `artifact_path`.
     #[prost(string, repeated, tag = "4")]
     pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "200")]
@@ -2717,13 +2718,11 @@ pub struct EvalTableField {
     /// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
     #[prost(string, tag = "3")]
     pub value_type: ::prost::alloc::string::String,
-    /// The CES extension type of a media column, like "wandb-image", and its
-    /// schema version. Both are unset for other columns.
-    /// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsExtensionType
+    /// The `_type` of a media column's W&B media, like "image-file", or unset
+    /// for other columns. wandb-core converts the column's values to CES
+    /// extension values.
     #[prost(string, tag = "4")]
-    pub extension_type: ::prost::alloc::string::String,
-    #[prost(int32, tag = "5")]
-    pub extension_schema_version: i32,
+    pub wandb_media_type: ::prost::alloc::string::String,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
