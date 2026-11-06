@@ -9743,7 +9743,7 @@ func (x *LogArtifactResponse) GetErrorMessage() string {
 	return ""
 }
 
-// Uploads an EvalTable to the CoreWeave Evaluations Service (CES).
+// Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
 //
 // wandb-core creates the table, declares its columns, appends its rows,
 // and cuts a version, then responds with the resulting CES IDs.
