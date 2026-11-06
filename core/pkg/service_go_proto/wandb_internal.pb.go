@@ -9743,21 +9743,18 @@ func (x *LogArtifactResponse) GetErrorMessage() string {
 	return ""
 }
 
-// Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
+// UploadEvalTable:
 //
-// wandb-core creates the table, declares its columns, appends its rows,
-// and cuts a version, then responds with the resulting CES IDs.
+// Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
 type UploadEvalTableRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The EvalTable's name.
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Dataset fields and scorers in the order CES should declare them.
-	DatasetFields []*EvalTableField  `protobuf:"bytes,2,rep,name=dataset_fields,json=datasetFields,proto3" json:"dataset_fields,omitempty"`
-	Scorers       []*EvalTableScorer `protobuf:"bytes,3,rep,name=scorers,proto3" json:"scorers,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	DatasetFields []*EvalTableField      `protobuf:"bytes,2,rep,name=dataset_fields,json=datasetFields,proto3" json:"dataset_fields,omitempty"`
+	Scorers       []*EvalTableScorer     `protobuf:"bytes,3,rep,name=scorers,proto3" json:"scorers,omitempty"`
 	// The table's rows in order, each a JSON object of the form
-	// {"input": {...}, "output": {...} | null, "scores": {...}}.
+	// {"input": {...} | null, "output": {...} | null, "scores": {...}}.
 	//
-	// Values are already normalized for CES: media cells hold CES extension
+	// Values already normalized for CES: media cells hold CES extension
 	// values, and every value matches its column's declared type.
 	RowsJson      []string      `protobuf:"bytes,4,rep,name=rows_json,json=rowsJson,proto3" json:"rows_json,omitempty"`
 	XInfo         *XRequestInfo `protobuf:"bytes,200,opt,name=_info,json=Info,proto3" json:"_info,omitempty"`
@@ -9830,16 +9827,18 @@ func (x *UploadEvalTableRequest) GetXInfo() *XRequestInfo {
 	return nil
 }
 
-// A CES dataset field: an input or output column of an EvalTable.
 type EvalTableField struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// "input" or "output".
+	// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsSource
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	Name   string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// A CES value type: "boolean", "integer", "number", "string", or "json".
+	// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
 	ValueType string `protobuf:"bytes,3,opt,name=value_type,json=valueType,proto3" json:"value_type,omitempty"`
 	// The CES extension type of a media column, like "wandb-image", and its
 	// schema version. Both are unset for other columns.
+	// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsExtensionType
 	ExtensionType          string `protobuf:"bytes,4,opt,name=extension_type,json=extensionType,proto3" json:"extension_type,omitempty"`
 	ExtensionSchemaVersion int32  `protobuf:"varint,5,opt,name=extension_schema_version,json=extensionSchemaVersion,proto3" json:"extension_schema_version,omitempty"`
 	unknownFields          protoimpl.UnknownFields
@@ -9911,11 +9910,11 @@ func (x *EvalTableField) GetExtensionSchemaVersion() int32 {
 	return 0
 }
 
-// A CES scorer: a score column of an EvalTable.
 type EvalTableScorer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// A CES primitive value type: "boolean", "integer", "number", or "string".
+	// One of: cwevals.EvalTableColumnNewParamsScorersValueType
 	ValueType     string `protobuf:"bytes,2,opt,name=value_type,json=valueType,proto3" json:"value_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
