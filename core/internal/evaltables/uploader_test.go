@@ -22,6 +22,7 @@ import (
 	"github.com/wandb/wandb/core/internal/runhandle"
 	"github.com/wandb/wandb/core/internal/runupsertertest"
 	"github.com/wandb/wandb/core/internal/settings"
+	"github.com/wandb/wandb/core/internal/wboperation"
 	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
 )
 
@@ -39,6 +40,10 @@ type fakeCES struct {
 
 	mu       sync.Mutex
 	requests []cesRequest
+
+	// onRequest, if set, is called with each request's path before
+	// responding.
+	onRequest func(path string)
 }
 
 func newFakeCES(t *testing.T) *fakeCES {
@@ -57,6 +62,10 @@ func newFakeCES(t *testing.T) *fakeCES {
 				Body:           string(body),
 			})
 			ces.mu.Unlock()
+
+			if ces.onRequest != nil {
+				ces.onRequest(r.URL.Path)
+			}
 
 			w.Header().Set("Content-Type", "application/json")
 			switch {
@@ -249,6 +258,31 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 		batchSizes = append(batchSizes, len(body.Rows))
 	}
 	assert.Equal(t, []int{7, 3}, batchSizes)
+}
+
+func TestUpload_ReportsRowProgress(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// Each row is 1 MiB, so the rows are sent in batches of 7 and 3.
+	row, err := json.Marshal(map[string]string{"x": strings.Repeat("a", 1<<20)})
+	require.NoError(t, err)
+	rows := make([]string, 10)
+	for i := range rows {
+		rows[i] = string(row)
+	}
+	op := wboperation.NewOperations().New("uploading eval table t")
+	var progress []string
+	ces.onRequest = func(path string) {
+		if strings.HasSuffix(path, "/rows") || strings.HasSuffix(path, "/versions") {
+			progress = append(progress, op.ToProto().GetProgress())
+		}
+	}
+
+	_, err = uploader.Upload(op.Context(context.Background()),
+		&spb.UploadEvalTableRequest{Name: "t", RowsJson: rows})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"", "7/10 rows", "10/10 rows"}, progress)
 }
 
 func TestUpload_NoCESURL(t *testing.T) {
