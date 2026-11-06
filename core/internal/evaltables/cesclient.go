@@ -19,8 +19,9 @@ import (
 // NewEvalTableService returns a client for the EvalTables API at the
 // settings' CES URL.
 //
-// It authenticates with credentialProvider instead of the SDK's environment
-// variables, and retries with wandb-core's HTTP client instead of the SDK's.
+// It authenticates with credentialProvider instead of the CES SDK's
+// environment variables, and retries with wandb-core's HTTP client instead
+// of the CES SDK's.
 func NewEvalTableService(
 	credentialProvider api.CredentialProvider,
 	logger *slog.Logger,
@@ -36,8 +37,8 @@ func NewEvalTableService(
 		option.WithHTTPClient(
 			newCESHTTPClient(cesBaseURL, credentialProvider, logger, s)),
 		option.WithMaxRetries(0),
-		// Drop the SDK's environment credentials; the HTTP client adds the
-		// run's, but only for requests to the CES URL.
+		// Drop the CES SDK's environment credentials; the HTTP client adds
+		// the run's, but only for requests to the CES URL.
 		option.WithHeaderDel("Authorization"),
 	).EvalTables, nil
 }
