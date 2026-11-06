@@ -206,8 +206,9 @@ def test_ces_eval_table_writes_supported_media(
     [request] = _sent(deliver_upload_eval_table)
     rows = _rows(request)
     image_value = rows[0]["output"]["image"]
-    assert image_value["extension_type"] == "wandb-image"
-    assert image_value["uri"].startswith("wandb-run-file://")
+    assert image_value["_type"] == "image-file"
+    assert image_value["path"].startswith("media/eval_tables/images/")
+    assert request.dataset_fields[0].wandb_media_type == "image-file"
 
 
 @pytest.mark.parametrize(
@@ -264,7 +265,7 @@ def test_ces_eval_table_writes_supported_media_in_raise_mode(
 
     [request] = _sent(deliver_upload_eval_table)
     rows = _rows(request)
-    assert rows[0]["output"]["image"]["extension_type"] == "wandb-image"
+    assert rows[0]["output"]["image"]["_type"] == "image-file"
 
 
 def test_ces_writer_validates_cells_during_construction():
@@ -452,14 +453,14 @@ def test_ces_eval_table_rejects_mixed_types_with_permissive_dtype_before_network
     deliver_upload_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_reports_extension_types_in_mixed_column_error():
+def test_ces_eval_table_reports_media_types_in_mixed_column_error():
     writer = ces.CESWriter()
 
-    with pytest.raises(UsageError, match="mixes 'wandb-image' and 'wandb-audio'"):
+    with pytest.raises(UsageError, match="mixes 'image-file' and 'audio-file'"):
         writer._merge_field_type(
             "media",
-            ces._CESFieldType("json", "wandb-image", 1),
-            ces._CESFieldType("json", "wandb-audio", 1),
+            ces._CESFieldType("json", "image-file"),
+            ces._CESFieldType("json", "audio-file"),
         )
 
 
