@@ -1,4 +1,4 @@
-package evaluations
+package evaltables
 
 import (
 	"bufio"
@@ -30,15 +30,11 @@ import (
 
 const (
 	// targetRowBatchBytes is the size above which a row append request body
-	// is split, leaving headroom below CES's 16 MiB request limit.
+	// is split, so we leave headroom below CES's 16 MiB request limit.
 	targetRowBatchBytes = 8 << 20
 
-	// maxRowsPerBatch is the most rows in one row append request.
 	maxRowsPerBatch = 10_000
 
-	// idempotencyKeyVersion versions the idempotency key format.
-	//
-	// v2 keys come from the SDK's Python writer.
 	idempotencyKeyVersion = "v3"
 )
 
@@ -78,11 +74,11 @@ func NewUploader(params UploaderParams) *Uploader {
 func newEvalTableService(params UploaderParams) (*ces.EvalTableService, error) {
 	rawURL := params.Settings.GetCESBaseURL()
 	if rawURL == "" {
-		return nil, errors.New("evaluations: no CES URL in settings")
+		return nil, errors.New("evaltables: no CES URL in settings")
 	}
 	cesBaseURL, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("evaluations: invalid CES URL: %v", err)
+		return nil, fmt.Errorf("evaltables: invalid CES URL: %v", err)
 	}
 
 	return NewEvalTableService(
@@ -116,7 +112,7 @@ func (u *Uploader) Upload(
 
 	upserter, err := u.runHandle.Upserter()
 	if err != nil {
-		return nil, fmt.Errorf("evaluations: %v", err)
+		return nil, fmt.Errorf("evaltables: %v", err)
 	}
 	runPath := upserter.RunPath()
 
@@ -133,7 +129,7 @@ func (u *Uploader) Upload(
 		keys.option("create"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaluations: failed to create EvalTable: %v", err)
+		return nil, fmt.Errorf("evaltables: failed to create EvalTable: %v", err)
 	}
 
 	_, err = evalTables.Columns.New(
@@ -147,13 +143,13 @@ func (u *Uploader) Upload(
 		keys.option("columns"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaluations: failed to add columns: %v", err)
+		return nil, fmt.Errorf("evaltables: failed to add columns: %v", err)
 	}
 
 	batchIndex := 0
 	for body, err := range rowBatchBodies(requestRows(request)) {
 		if err != nil {
-			return nil, fmt.Errorf("evaluations: failed to read rows: %v", err)
+			return nil, fmt.Errorf("evaltables: failed to read rows: %v", err)
 		}
 
 		if _, err := evalTables.Rows.Add(
@@ -165,7 +161,7 @@ func (u *Uploader) Upload(
 			// into the SDK's types.
 			option.WithRequestBody("application/json", body),
 		); err != nil {
-			return nil, fmt.Errorf("evaluations: failed to add rows: %v", err)
+			return nil, fmt.Errorf("evaltables: failed to add rows: %v", err)
 		}
 		batchIndex++
 	}
@@ -177,7 +173,7 @@ func (u *Uploader) Upload(
 		keys.option("version"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaluations: failed to cut version: %v", err)
+		return nil, fmt.Errorf("evaltables: failed to cut version: %v", err)
 	}
 
 	return &spb.UploadEvalTableResponse{
@@ -209,13 +205,13 @@ func (u *Uploader) projectScopeID(
 		runPath.Project,
 	)
 	if err != nil {
-		return "", fmt.Errorf("evaluations: failed to look up project: %v", err)
+		return "", fmt.Errorf("evaltables: failed to look up project: %v", err)
 	}
 
 	project := response.GetProject()
 	if project == nil || project.GetInternalId() == "" {
 		return "", fmt.Errorf(
-			"evaluations: project %s/%s not found",
+			"evaltables: project %s/%s not found",
 			runPath.Entity,
 			runPath.Project,
 		)
