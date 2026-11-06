@@ -49,13 +49,13 @@ def coreweave_evaluations_module(monkeypatch):
     )
 
 
-def _log_eval_table_result(
-    response: pb.LogEvalTableResponse,
+def _upload_eval_table_result(
+    response: pb.UploadEvalTableResponse,
 ) -> pb.Result:
-    return pb.Result(response=pb.Response(log_eval_table_response=response))
+    return pb.Result(response=pb.Response(upload_eval_table_response=response))
 
 
-_UPLOADED = pb.LogEvalTableResponse(
+_UPLOADED = pb.UploadEvalTableResponse(
     evaluation_id="evaluation-1",
     evaluation_version_id="evaluation-version-1",
     dataset_id="dataset-1",
@@ -64,20 +64,20 @@ _UPLOADED = pb.LogEvalTableResponse(
 
 
 @pytest.fixture
-def deliver_log_eval_table(monkeypatch) -> MagicMock:
+def deliver_upload_eval_table(monkeypatch) -> MagicMock:
     """Replace wandb-core's EvalTable upload with one that succeeds."""
     deliver = MagicMock()
-    deliver.return_value.wait_or.return_value = _log_eval_table_result(_UPLOADED)
-    monkeypatch.setattr(InterfaceBase, "deliver_log_eval_table", deliver)
+    deliver.return_value.wait_or.return_value = _upload_eval_table_result(_UPLOADED)
+    monkeypatch.setattr(InterfaceBase, "deliver_upload_eval_table", deliver)
     return deliver
 
 
-def _sent(deliver: MagicMock) -> list[pb.LogEvalTableRequest]:
+def _sent(deliver: MagicMock) -> list[pb.UploadEvalTableRequest]:
     """Return the requests sent to wandb-core."""
     return [call.args[0] for call in deliver.call_args_list]
 
 
-def _rows(request: pb.LogEvalTableRequest) -> list[dict[str, Any]]:
+def _rows(request: pb.UploadEvalTableRequest) -> list[dict[str, Any]]:
     return [json.loads(row) for row in request.rows_json]
 
 
@@ -90,7 +90,7 @@ def _as_dicts(messages: list[Message]) -> list[dict[str, Any]]:
 
 
 def test_ces_eval_table_writes_columns_rows_and_version(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
     monkeypatch,
 ):
@@ -113,7 +113,7 @@ def test_ces_eval_table_writes_columns_rows_and_version(
 
     run.log({"math_eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     assert request.name == "math_eval"
     assert _as_dicts(request.dataset_fields) == [
         {"source": "input", "name": "prompt", "value_type": "string"},
@@ -159,7 +159,7 @@ def test_ces_eval_table_writes_columns_rows_and_version(
 
 
 def test_ces_eval_table_without_inputs_keys_rows_by_position(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     et = wandb.EvalTable(
@@ -171,7 +171,7 @@ def test_ces_eval_table_without_inputs_keys_rows_by_position(
 
     run.log({"eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     assert _rows(request) == [
         {
             "input": None,
@@ -189,7 +189,7 @@ def test_ces_eval_table_without_inputs_keys_rows_by_position(
 
 
 def test_ces_eval_table_stubs_media_until_native_support_exists(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     mock_wandb_log,
     run,
 ):
@@ -202,14 +202,14 @@ def test_ces_eval_table_stubs_media_until_native_support_exists(
 
     run.log({"media_eval": table})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     rows = _rows(request)
     assert rows[0]["output"]["histogram"] == "[wandb.Histogram not yet supported]"
     mock_wandb_log.assert_warned("wandb.Histogram values are not yet supported")
 
 
 def test_ces_eval_table_writes_supported_media(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     from PIL import Image as PILImage
@@ -223,7 +223,7 @@ def test_ces_eval_table_writes_supported_media(
 
     run.log({"media_eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     rows = _rows(request)
     image_value = rows[0]["output"]["image"]
     assert image_value["extension_type"] == "wandb-image"
@@ -268,7 +268,7 @@ def test_ces_eval_table_media_telemetry_counts_affected_writes(
 
 
 def test_ces_eval_table_writes_supported_media_in_raise_mode(
-    deliver_log_eval_table, run
+    deliver_upload_eval_table, run
 ):
     from PIL import Image as PILImage
 
@@ -282,7 +282,7 @@ def test_ces_eval_table_writes_supported_media_in_raise_mode(
     )
     run.log({"media_eval": table})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     rows = _rows(request)
     assert rows[0]["output"]["image"]["extension_type"] == "wandb-image"
 
@@ -299,7 +299,7 @@ def test_ces_writer_validates_cells_during_construction():
 
 
 def test_ces_eval_table_rejects_oversized_row_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
     monkeypatch,
 ):
@@ -322,11 +322,11 @@ def test_ces_eval_table_rejects_oversized_row_before_network(
     with pytest.raises(UsageError, match="row at index 0"):
         run.log({"eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_rejects_total_row_count_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
     monkeypatch,
 ):
@@ -341,12 +341,12 @@ def test_ces_eval_table_rejects_total_row_count_before_network(
     with pytest.raises(UsageError, match="at most 2 rows per table"):
         run.log({"eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_raises_upload_error(deliver_log_eval_table, run):
-    deliver_log_eval_table.return_value.wait_or.return_value = _log_eval_table_result(
-        pb.LogEvalTableResponse(error_message="upload failed")
+def test_ces_eval_table_raises_upload_error(deliver_upload_eval_table, run):
+    deliver_upload_eval_table.return_value.wait_or.return_value = _upload_eval_table_result(
+        pb.UploadEvalTableResponse(error_message="upload failed")
     )
     et = wandb.EvalTable(
         columns=["value"],
@@ -362,7 +362,7 @@ def test_ces_eval_table_raises_upload_error(deliver_log_eval_table, run):
 
 
 def test_ces_eval_table_infers_python_and_numpy_integers(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     np = pytest.importorskip("numpy")
@@ -375,7 +375,7 @@ def test_ces_eval_table_infers_python_and_numpy_integers(
 
     run.log({"typed_eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     assert _as_dicts(request.dataset_fields) == [
         {"source": "output", "name": "python_int", "value_type": "integer"},
         {"source": "output", "name": "numpy_int", "value_type": "integer"},
@@ -384,7 +384,7 @@ def test_ces_eval_table_infers_python_and_numpy_integers(
 
 
 def test_ces_eval_table_classifies_integer_valued_floats_as_numbers(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     et = wandb.EvalTable(
@@ -396,13 +396,13 @@ def test_ces_eval_table_classifies_integer_valued_floats_as_numbers(
 
     run.log({"typed_eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     assert _as_dicts(request.dataset_fields) == [
         {"source": "output", "name": "value", "value_type": "number"},
     ]
 
 
-def test_ces_eval_table_serializes_nan_as_typed_null(deliver_log_eval_table, run):
+def test_ces_eval_table_serializes_nan_as_typed_null(deliver_upload_eval_table, run):
     et = wandb.EvalTable(
         columns=["value"],
         data=[[float("nan")]],
@@ -412,7 +412,7 @@ def test_ces_eval_table_serializes_nan_as_typed_null(deliver_log_eval_table, run
 
     run.log({"nan_eval": et})
 
-    [request] = _sent(deliver_log_eval_table)
+    [request] = _sent(deliver_upload_eval_table)
     assert _as_dicts(request.dataset_fields) == [
         {"source": "output", "name": "value", "value_type": "number"},
     ]
@@ -428,7 +428,7 @@ def test_ces_eval_table_serializes_nan_as_typed_null(deliver_log_eval_table, run
     ],
 )
 def test_ces_eval_table_rejects_invalid_columns_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
     data,
     message,
@@ -441,7 +441,7 @@ def test_ces_eval_table_rejects_invalid_columns_before_network(
     with pytest.raises(UsageError, match=message):
         run.log({"invalid_eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_rejects_mixed_column_types_on_construction():
@@ -454,7 +454,7 @@ def test_ces_eval_table_rejects_mixed_column_types_on_construction():
 
 
 def test_ces_eval_table_rejects_mixed_types_with_permissive_dtype_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     et = wandb.EvalTable(
@@ -467,7 +467,7 @@ def test_ces_eval_table_rejects_mixed_types_with_permissive_dtype_before_network
     with pytest.raises(UsageError, match="mixes 'boolean' and 'integer'"):
         run.log({"mixed_eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_reports_extension_types_in_mixed_column_error():
@@ -496,7 +496,7 @@ def test_ces_eval_table_reports_extension_types_in_mixed_column_error():
     ],
 )
 def test_ces_eval_table_rejects_invalid_column_name_lengths_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
     columns,
     input_columns,
@@ -516,12 +516,12 @@ def test_ces_eval_table_rejects_invalid_column_name_lengths_before_network(
     with pytest.raises(UsageError, match=message):
         run.log({"invalid_eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_describes_field_limit_as_input_and_output_columns(
     monkeypatch,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     monkeypatch.setattr(ces, "_MAX_DATASET_FIELDS", 1)
@@ -539,11 +539,11 @@ def test_ces_eval_table_describes_field_limit_as_input_and_output_columns(
     ):
         run.log({"invalid_eval": et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
 def test_ces_eval_table_rejects_invalid_table_name_length_before_network(
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     run,
 ):
     et = wandb.EvalTable(columns=["value"], data=[[1]], backend="ces")
@@ -551,10 +551,10 @@ def test_ces_eval_table_rejects_invalid_table_name_length_before_network(
     with pytest.raises(UsageError, match="EvalTable names"):
         run.log({"x" * 257: et})
 
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
-def test_ces_error_uses_original_integer_column(deliver_log_eval_table, run):
+def test_ces_error_uses_original_integer_column(deliver_upload_eval_table, run):
     et = wandb.EvalTable(
         columns=[3],
         data=[[float("inf")]],
@@ -565,13 +565,13 @@ def test_ces_error_uses_original_integer_column(deliver_log_eval_table, run):
         run.log({"invalid_eval": et})
 
     assert "column '3'" not in str(exc_info.value)
-    deliver_log_eval_table.assert_not_called()
+    deliver_upload_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_retry_resends_request(deliver_log_eval_table, run):
-    deliver_log_eval_table.return_value.wait_or.side_effect = [
-        _log_eval_table_result(pb.LogEvalTableResponse(error_message="failed")),
-        _log_eval_table_result(_UPLOADED),
+def test_ces_eval_table_retry_resends_request(deliver_upload_eval_table, run):
+    deliver_upload_eval_table.return_value.wait_or.side_effect = [
+        _upload_eval_table_result(pb.UploadEvalTableResponse(error_message="failed")),
+        _upload_eval_table_result(_UPLOADED),
     ]
     et = wandb.EvalTable(
         columns=["value"],
@@ -585,7 +585,7 @@ def test_ces_eval_table_retry_resends_request(deliver_log_eval_table, run):
         et.to_json(run)
     et.to_json(run)
 
-    first, retry = _sent(deliver_log_eval_table)
+    first, retry = _sent(deliver_upload_eval_table)
     assert first == retry
 
 

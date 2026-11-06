@@ -197,8 +197,8 @@ class CESWriter:
                 f"First affected: {locations}.",
             )
 
-        response = bound_run.run._log_eval_table(
-            pb.LogEvalTableRequest(
+        response = bound_run.run._upload_eval_table(
+            pb.UploadEvalTableRequest(
                 name=name,
                 dataset_fields=[
                     pb.EvalTableField(**dataset_field)
