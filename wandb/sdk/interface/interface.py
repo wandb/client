@@ -687,16 +687,16 @@ class InterfaceBase(abc.ABC):
     ) -> MailboxHandle[pb.Result]:
         raise NotImplementedError
 
-    def deliver_log_eval_table(
+    def deliver_upload_eval_table(
         self,
-        log_eval_table: pb.LogEvalTableRequest,
+        upload_eval_table: pb.UploadEvalTableRequest,
     ) -> MailboxHandle[pb.Result]:
-        return self._deliver_log_eval_table(log_eval_table)
+        return self._deliver_upload_eval_table(upload_eval_table)
 
     @abc.abstractmethod
-    def _deliver_log_eval_table(
+    def _deliver_upload_eval_table(
         self,
-        log_eval_table: pb.LogEvalTableRequest,
+        upload_eval_table: pb.UploadEvalTableRequest,
     ) -> MailboxHandle[pb.Result]:
         raise NotImplementedError
 
