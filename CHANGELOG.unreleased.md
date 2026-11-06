@@ -27,7 +27,9 @@ Section headings should be at level 3 (e.g. `### Added`).
 
 ### Fixed
 
-- `wandb-core` allows a bounded flush on SIGINT, SIGTERM, and parent death instead of immediately discarding buffered records.
+- `wandb-core` allows a bounded flush on SIGINT, SIGTERM, and parent death instead of immediately discarding buffered records. The `.wandb` file is fsynced when a run exits and again at the end of a shutdown, even when the grace period runs out.
+- Each run writes a `run_end.json` file to its run directory saying how it ended (finished, upload stopped, or shut down by a signal or parent exit) and which filestream offsets the server acknowledged, so incomplete runs can be identified after the fact.
+- Records that `wandb-core` could not read back from the `.wandb` file while uploading are now reported in the terminal and in `run_end.json` instead of only in the debug log.
 
 - `wandb beta sync` no longer marks a run synced after a fatal filestream upload error.
 

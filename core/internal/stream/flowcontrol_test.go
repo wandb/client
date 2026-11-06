@@ -2,6 +2,7 @@ package stream_test
 
 import (
 	"bytes"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,9 @@ type fcTestFixtures struct {
 
 	Logs             *bytes.Buffer
 	MockRecordParser *streamtest.MockRecordParser
+
+	// Lost counts records reported through OnLostRecords.
+	Lost *atomic.Int64
 }
 
 // setup initializes test objects.
@@ -64,6 +68,8 @@ func setup(
 		mockRecordParser,
 		params,
 	)
+	lost := &atomic.Int64{}
+	flowControl.OnLostRecords(func(n int64, _ error) { lost.Add(n) })
 
 	go writer.Do(input)
 	go flowControl.Do(writer.Chan())
@@ -73,6 +79,7 @@ func setup(
 		Output:           flowControl.Chan(),
 		Logs:             logs,
 		MockRecordParser: mockRecordParser,
+		Lost:             lost,
 	}
 }
 
@@ -110,6 +117,7 @@ func TestDiscardsAndRereadsWork(t *testing.T) {
 		MinTimes(1)
 
 	assert.Equal(t, expectedWork1, <-x.Output)
+	t.Cleanup(func() { assert.Zero(t, x.Lost.Load()) })
 
 	idx := 0
 	for work := range x.Output {
@@ -165,6 +173,7 @@ func TestStopsDiscardingOnStoreError(t *testing.T) {
 		feedInputUntilOutputCount(t, x, 1)
 
 		assert.Contains(t, x.Logs.String(), "failed reading")
+		assert.Positive(t, x.Lost.Load(), "skipped records must be reported")
 	})
 
 	t.Run("broken SeekRecord", func(t *testing.T) {
@@ -178,6 +187,7 @@ func TestStopsDiscardingOnStoreError(t *testing.T) {
 		feedInputUntilOutputCount(t, x, 1)
 
 		assert.Contains(t, x.Logs.String(), "failed to seek")
+		assert.Positive(t, x.Lost.Load(), "skipped records must be reported")
 	})
 
 	t.Run("invalid record number", func(t *testing.T) {

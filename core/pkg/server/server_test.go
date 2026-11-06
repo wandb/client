@@ -150,7 +150,7 @@ func TestShutdownWaitsForConnectionsWithinGrace(t *testing.T) {
 		s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
 		release := make(chan struct{})
 		s.connectionsWG.Go(func() { <-release })
-		s.Shutdown()
+		s.Shutdown("test")
 		synctest.Wait()
 		select {
 		case <-s.shutdownDone:
@@ -175,7 +175,7 @@ func TestShutdownDeadlineAndSecondSignal(t *testing.T) {
 				s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
 				release := make(chan struct{})
 				s.connectionsWG.Go(func() { <-release })
-				s.Shutdown()
+				s.Shutdown("test")
 				synctest.Wait()
 				if force {
 					s.ForceStop()
@@ -198,7 +198,7 @@ func TestShutdownRepeatedCalls(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
 		for range 10 {
-			go s.Shutdown()
+			go s.Shutdown("test")
 		}
 		synctest.Wait()
 		select {

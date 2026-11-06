@@ -113,6 +113,33 @@ while psutil.pid_exists(p):
 				require.NotNil(t, exitCode)
 				require.EqualValues(t, 255, *exitCode)
 			}
+
+			runEndPath := filepath.Join(filepath.Dir(ready.File), "run_end.json")
+			runEndData, err := os.ReadFile(runEndPath)
+			if scenario == "sigkill_control" {
+				require.ErrorIs(t, err, os.ErrNotExist, "SIGKILL runs no shutdown code")
+				return
+			}
+			require.NoError(t, err)
+			var runEnd struct {
+				EndReason       string `json:"end_reason"`
+				ShutdownReason  string `json:"shutdown_reason"`
+				ShutdownDrained *bool  `json:"shutdown_drained"`
+				ExitCode        *int32 `json:"exit_code"`
+				Offline         bool   `json:"offline"`
+			}
+			require.NoError(t, json.Unmarshal(runEndData, &runEnd))
+			require.Equal(t, "shutdown", runEnd.EndReason)
+			if scenario == "sigterm" || scenario == "parent_death_prctl" {
+				require.Equal(t, "signal: terminated", runEnd.ShutdownReason)
+			} else {
+				require.Equal(t, "parent_exited", runEnd.ShutdownReason)
+			}
+			require.NotNil(t, runEnd.ShutdownDrained)
+			require.True(t, *runEnd.ShutdownDrained)
+			require.NotNil(t, runEnd.ExitCode)
+			require.EqualValues(t, 255, *runEnd.ExitCode)
+			require.True(t, runEnd.Offline)
 		})
 	}
 }

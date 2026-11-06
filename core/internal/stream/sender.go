@@ -104,6 +104,12 @@ type Sender struct {
 	// It is nil in offline mode.
 	fileStream fs.FileStream
 
+	// fileStreamDone is closed after the FileStream finishes.
+	fileStreamDone chan struct{}
+
+	// runEnd records how the run ended. It may be nil.
+	runEnd *RunEndRecorder
+
 	// fileTransferManager uploads and downloads files.
 	//
 	// It is nil in offline mode.
@@ -241,6 +247,7 @@ func (f *SenderFactory) NewWithFileStream(
 		receivedExitCh:      make(chan struct{}),
 		settings:            f.Settings,
 		fileStream:          fileStream,
+		fileStreamDone:      make(chan struct{}),
 		fileTransferManager: f.FileTransferManager,
 		fileTransferStats:   f.FileTransferStats,
 		fileWatcher:         f.FileWatcher,
@@ -507,7 +514,20 @@ func (s *Sender) startFileStreamAfterRunInit() {
 			runPath.RunID,
 			upserter.FileStreamOffsets(),
 		)
+
+		go s.recordFileStreamDeath()
 	})
+}
+
+// recordFileStreamDeath writes the run-end record as soon as a fatal error
+// stops uploads, so the record exists even if the process is killed before
+// the run finishes.
+func (s *Sender) recordFileStreamDeath() {
+	select {
+	case <-s.fileStream.Dead():
+		s.runEnd.UploadStopped(s.fileStream.Err(), s.fileStream.Progress())
+	case <-s.fileStreamDone:
+	}
 }
 
 func (s *Sender) sendRequestNetworkStatus(
@@ -704,6 +724,15 @@ func (s *Sender) finishRunSync(
 		} else {
 			s.fileStream.FinishWithExit(exitRecord.ExitCode)
 		}
+		close(s.fileStreamDone)
+		s.runEnd.Exited(
+			exitRecord.ExitCode,
+			false,
+			s.fileStream.Err(),
+			s.fileStream.Progress(),
+		)
+	} else {
+		s.runEnd.Exited(exitRecord.ExitCode, true, nil, fs.Progress{})
 	}
 
 	// Indicate that `run.finish()` is done.

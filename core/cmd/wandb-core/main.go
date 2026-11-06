@@ -205,7 +205,7 @@ func serviceMain() int {
 			}
 		case sig := <-signalCh:
 			slog.Info("main: received shutdown signal", "signal", sig)
-			srv.Shutdown()
+			srv.Shutdown("signal: " + sig.String())
 			var err error
 			select {
 			case err = <-srvCh:

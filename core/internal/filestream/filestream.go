@@ -89,6 +89,12 @@ type FileStream interface {
 	// to determine whether filestream completed successfully.
 	Err() error
 
+	// Dead returns a channel that is closed once a fatal error stops uploads.
+	Dead() <-chan struct{}
+
+	// Progress reports what the server has acknowledged so far.
+	Progress() Progress
+
 	// IsStopped returns whether the run has been requested to stop.
 	//
 	// This happens if the user pressed the Stop button in the UI.
@@ -140,6 +146,10 @@ type fileStream struct {
 	deadChanOnce *sync.Once
 	errMu        sync.Mutex
 	fatalErr     error
+
+	// progressMu protects progress.
+	progressMu sync.Mutex
+	progress   Progress
 
 	// stopState is the last-known stopped status as reported by the backend.
 	//
@@ -313,6 +323,23 @@ func (fs *fileStream) isDead() bool {
 	default:
 		return false
 	}
+}
+
+// Dead implements FileStream.Dead.
+func (fs *fileStream) Dead() <-chan struct{} { return fs.deadChan }
+
+// Progress implements FileStream.Progress.
+func (fs *fileStream) Progress() Progress {
+	fs.progressMu.Lock()
+	defer fs.progressMu.Unlock()
+	return fs.progress.clone()
+}
+
+// recordAcked updates progress after the server accepted data.
+func (fs *fileStream) recordAcked(data *FileStreamRequestJSON) {
+	fs.progressMu.Lock()
+	defer fs.progressMu.Unlock()
+	fs.progress.addAcked(data)
 }
 
 // Err implements FileStream.Err.

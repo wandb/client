@@ -32,6 +32,18 @@ type FlowControl struct {
 	flushWriter  func() error
 	logger       *observability.CoreLogger
 	recordParser RecordParser
+
+	// onLostRecords is called with the number of saved records that could
+	// not be read back and were skipped. It may be nil.
+	onLostRecords func(lost int64, err error)
+}
+
+// OnLostRecords sets a callback for saved records that are skipped because
+// they could not be read back from the transaction log.
+//
+// It must be called before Do.
+func (fc *FlowControl) OnLostRecords(callback func(lost int64, err error)) {
+	fc.onLostRecords = callback
 }
 
 func (f *FlowControlFactory) New(
@@ -90,11 +102,15 @@ func (fc *FlowControl) loopFlushBuffer() {
 				fc.out <- work
 			},
 			func(chunk *FlowControlBufferSavedChunk) {
-				err := fc.readSavedChunk(chunk)
+				read, err := fc.readSavedChunk(chunk)
 
 				if err != nil {
 					fc.logger.CaptureError("stream", err, "chunk", chunk)
 					fc.buffer.StopOffloading()
+
+					if fc.onLostRecords != nil {
+						fc.onLostRecords(chunk.Count-read, err)
+					}
 				}
 			},
 		)
@@ -103,22 +119,22 @@ func (fc *FlowControl) loopFlushBuffer() {
 
 // readSavedChunk forwards data from the transaction log.
 //
-// Returns an error and skips the chunk if storeBroken is true.
+// Returns the number of records forwarded.
 //
 // On any error, the rest of the chunk is skipped. This way, we still do
 // a best-effort job of processing the user's run, and later they can hopefully
 // sync.
 func (fc *FlowControl) readSavedChunk(
 	chunk *FlowControlBufferSavedChunk,
-) error {
+) (int64, error) {
 	err := fc.flushWriter()
 	if err != nil {
-		return fmt.Errorf("flowcontrol: failed to flush writer: %v", err)
+		return 0, fmt.Errorf("flowcontrol: failed to flush writer: %v", err)
 	}
 
 	err = fc.reader.SeekRecord(chunk.InitialOffset)
 	if err != nil {
-		return fmt.Errorf("flowcontrol: failed to seek: %v", err)
+		return 0, fmt.Errorf("flowcontrol: failed to seek: %v", err)
 	}
 
 	for idx := int64(0); idx < chunk.Count; idx++ {
@@ -127,12 +143,12 @@ func (fc *FlowControl) readSavedChunk(
 		switch {
 		case err != nil:
 			// NOTE: EOF is unexpected: we expect the entire chunk to be saved.
-			return fmt.Errorf(
+			return idx, fmt.Errorf(
 				"flowcontrol: failed reading after %d records: %v",
 				idx, err)
 
 		case record.Num != chunk.InitialNumber+idx:
-			return fmt.Errorf(
+			return idx, fmt.Errorf(
 				"flowcontrol: record %d in chunk had number %d, not %d",
 				idx, record.Num, chunk.InitialNumber+idx)
 		}
@@ -141,5 +157,5 @@ func (fc *FlowControl) readSavedChunk(
 		fc.out <- runwork.NoRequest(fc.recordParser.Parse(record))
 	}
 
-	return nil
+	return chunk.Count, nil
 }
