@@ -273,7 +273,7 @@ func TestUpload_PassesThroughAllValueTypes(t *testing.T) {
 	assert.Equal(t, `{"rows":[`+row+`]}`, requests[2].Body)
 }
 
-func TestUpload_IdempotencyKeys(t *testing.T) {
+func TestUpload_DistinctIdempotencyKeys(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
 	request := &spb.UploadEvalTableRequest{
@@ -304,6 +304,8 @@ func TestUpload_RetriesReuseIdempotencyKey(t *testing.T) {
 	ces := newFakeCES(t)
 	var failed atomic.Bool
 	ces.errorStatus = func(path string) int {
+		// Fail only the first rows request, with a status that makes the CES HTTP
+		// client retry.
 		if strings.HasSuffix(path, "/rows") && failed.CompareAndSwap(false, true) {
 			return http.StatusServiceUnavailable
 		}
@@ -317,12 +319,18 @@ func TestUpload_RetriesReuseIdempotencyKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	requests := ces.Requests()
-	require.Len(t, requests, 5)
-	failedAttempt, retry := requests[2], requests[3]
-	assert.True(t, strings.HasSuffix(failedAttempt.Path, "/rows"), failedAttempt.Path)
-	assert.Equal(t, failedAttempt, retry)
-
+	var rowsRequests []cesRequest
+	for _, req := range ces.Requests() {
+		if strings.HasSuffix(req.Path, "/rows") {
+			rowsRequests = append(rowsRequests, req)
+		}
+	}
+	// The failed attempt and its retry. The retry must reuse the key so
+	// that CES replays it instead of adding the rows again.
+	require.Len(t, rowsRequests, 2)
+	assert.Equal(t,
+		rowsRequests[0].IdempotencyKey,
+		rowsRequests[1].IdempotencyKey)
 }
 
 func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
