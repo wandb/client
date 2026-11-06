@@ -19,8 +19,6 @@ func NewCESHTTPClient(
 	s *settings.Settings,
 ) api.HTTPDoer {
 	retryClient := api.NewClient(api.ClientOptions{
-		// Retries 503 publication_failed and 429, but not 409
-		// idempotency_key_reuse or validation errors.
 		RetryPolicy:        clients.RetryMostFailures,
 		RetryMax:           api.DefaultRetryMax,
 		RetryWaitMin:       api.DefaultRetryWaitMin,
@@ -32,8 +30,8 @@ func NewCESHTTPClient(
 		Logger:             logger,
 		PreRetryLayers: httplayers.Concat(
 			httplayers.DefaultHeaders(s.GetExtraHTTPHeaders()),
-			// The SDK builds every request against its base URL, so
-			// credentials don't need scoping to it.
+			// Unlike other clients, not limited to a URL: only the CES SDK
+			// uses this client, and only for its base URL.
 			credentialProvider,
 		),
 	})
@@ -41,13 +39,15 @@ func NewCESHTTPClient(
 	return api.AsStandardClient(retryClient)
 }
 
-// NewEvalTableService returns a client for CES's EvalTable routes.
-//
-// It takes the CES URL, namespace and headers from the SDK's environment
-// defaults, such as CES_BASE_URL. httpClient authenticates and retries
-// requests, overriding the SDK's credentials and retries.
-func NewEvalTableService(httpClient api.HTTPDoer) *ces.EvalTableService {
+// NewEvalTableService returns a CES EvalTable client that authenticates and
+// retries with httpClient instead of the SDK's environment credentials and
+// retries.
+func NewEvalTableService(
+	cesBaseURL string,
+	httpClient api.HTTPDoer,
+) *ces.EvalTableService {
 	return ces.NewClient(
+		option.WithBaseURL(cesBaseURL),
 		option.WithHTTPClient(httpClient),
 		option.WithMaxRetries(0),
 	).EvalTables

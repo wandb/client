@@ -44,6 +44,7 @@ def _path_convert(*args: str) -> str:
 CLIENT_ONLY_SETTINGS = (
     "anonymous",
     "app_url_override",
+    "x_ces_base_url_override",
     "capture_loggers",
     "files_dir",
     "finish_timeout_raises",
@@ -612,6 +613,17 @@ class Settings(BaseModel, validate_assignment=True):
     #
     # These are typically not meant to be set by the user and should not be considered
     # a part of the public API as they may change or be removed in future versions.
+
+    x_ces_base_url_override: str | None = None
+    """Override for the CoreWeave Evaluations service (CES) URL.
+
+    The `x_ces_base_url` is normally computed based on `base_url`, but this
+    can be used to set it explicitly.
+
+    CES_BASE_URL is the corresponding environment variable.
+
+    <!-- lazydoc-ignore -->
+    """
 
     x_cli_only_mode: bool = False
     """Flag to indicate that the SDK is running in CLI-only mode.
@@ -1875,6 +1887,15 @@ class Settings(BaseModel, validate_assignment=True):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def x_ces_base_url(self) -> str:
+        """The URL for the CoreWeave Evaluations service (CES).
+
+        <!-- lazydoc-ignore -->
+        """
+        return self.x_ces_base_url_override or urls.api_to_ces_url(self.base_url)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def wandb_dir(self) -> str:
         """Full path to the wandb directory."""
         if self.use_dot_wandb is None:
@@ -1990,14 +2011,14 @@ class Settings(BaseModel, validate_assignment=True):
             env.HTTP_TIMEOUT: "x_graphql_timeout_seconds",
             env.FILE_PUSHER_TIMEOUT: "x_file_transfer_timeout_seconds",
             env.USER_EMAIL: "email",
+            env.CES_BASE_URL: "x_ces_base_url_override",
         }
 
         for setting, value in environ.items():
-            if not setting.startswith(env_prefix):
-                continue
-
             if setting in special_env_var_names:
                 key = special_env_var_names[setting]
+            elif not setting.startswith(env_prefix):
+                continue
             elif setting.startswith(private_env_prefix):
                 key = "x_" + setting[len(private_env_prefix) :].lower()
             else:
