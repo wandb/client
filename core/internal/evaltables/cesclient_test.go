@@ -2,21 +2,38 @@ package evaltables_test
 
 import (
 	"context"
-	"net/http"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	ces "github.com/wandb/cwevals-go"
+	"github.com/wandb/cwevals-go/option"
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/apitest"
 	"github.com/wandb/wandb/core/internal/evaltables"
 	"github.com/wandb/wandb/core/internal/observabilitytest"
 	"github.com/wandb/wandb/core/internal/settings"
+	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
 )
+
+var newTableParams = ces.EvalTableNewParams{
+	ScopeID: ces.F("scope"),
+	Name:    ces.F("table"),
+}
+
+func newTestService(t *testing.T, cesURL string) *ces.EvalTableService {
+	t.Helper()
+	service, err := evaltables.NewEvalTableService(
+		api.NewAPIKeyCredentialProvider("run-api-key"),
+		observabilitytest.NewTestLogger(t).Logger,
+		settings.From(&spb.Settings{XCesBaseUrl: wrapperspb.String(cesURL)}),
+	)
+	require.NoError(t, err)
+	return service
+}
 
 func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	server := apitest.NewRecordingServer()
@@ -25,23 +42,11 @@ func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	t.Setenv("WANDB_API_KEY", "env-api-key")
 	t.Setenv("WANDB_ACCESS_TOKEN", "env-access-token")
 	t.Setenv("CES_CUSTOM_HEADERS", "X-From-Env: yes")
-	cesURL := mustParseURL(t, server.URL+"/evaluations")
-	service := evaltables.NewEvalTableService(
-		cesURL,
-		evaltables.NewCESHTTPClient(
-			cesURL,
-			api.NewAPIKeyCredentialProvider("run-api-key"),
-			observabilitytest.NewTestLogger(t).Logger,
-			settings.New(),
-		),
-	)
+	service := newTestService(t, server.URL+"/evaluations")
 
 	// The recording server's empty response fails to decode; only the
 	// request matters here.
-	_, _ = service.New(context.Background(), ces.EvalTableNewParams{
-		ScopeID: ces.F("scope"),
-		Name:    ces.F("table"),
-	})
+	_, _ = service.New(context.Background(), newTableParams)
 
 	requests := server.Requests()
 	require.Len(t, requests, 1)
@@ -55,28 +60,21 @@ func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	assert.Equal(t, "yes", req.Header.Get("X-From-Env"))
 }
 
-func TestCESHTTPClient_SendsCredentialsOnlyToCESURL(t *testing.T) {
+func TestEvalTableService_SendsCredentialsOnlyToCESURL(t *testing.T) {
 	cesServer := apitest.NewRecordingServer()
 	defer cesServer.Close()
 	otherServer := apitest.NewRecordingServer()
 	defer otherServer.Close()
-	client := evaltables.NewCESHTTPClient(
-		mustParseURL(t, cesServer.URL+"/evaluations"),
-		api.NewAPIKeyCredentialProvider("run-api-key"),
-		observabilitytest.NewTestLogger(t).Logger,
-		settings.New(),
-	)
+	t.Setenv("WANDB_API_KEY", "env-api-key")
+	service := newTestService(t, cesServer.URL+"/evaluations")
 
-	for _, rawURL := range []string{
-		cesServer.URL + "/evaluations/v1",
-		cesServer.URL + "/graphql",
-		otherServer.URL + "/evaluations/v1",
+	for _, baseURL := range []string{
+		cesServer.URL + "/evaluations",
+		cesServer.URL + "/other",
+		otherServer.URL + "/evaluations",
 	} {
-		req, err := http.NewRequest(http.MethodGet, rawURL, http.NoBody)
-		require.NoError(t, err)
-		resp, err := client.Do(req)
-		require.NoError(t, err)
-		require.NoError(t, resp.Body.Close())
+		_, _ = service.New(context.Background(), newTableParams,
+			option.WithBaseURL(baseURL))
 	}
 
 	cesRequests := cesServer.Requests()
@@ -88,9 +86,22 @@ func TestCESHTTPClient_SendsCredentialsOnlyToCESURL(t *testing.T) {
 	assert.Empty(t, otherRequests[0].Header.Get("Authorization"))
 }
 
-func mustParseURL(t *testing.T, rawURL string) *url.URL {
-	t.Helper()
-	u, err := url.Parse(rawURL)
-	require.NoError(t, err)
-	return u
+func TestNewEvalTableService_NoURL(t *testing.T) {
+	_, err := evaltables.NewEvalTableService(
+		api.NewAPIKeyCredentialProvider("run-api-key"),
+		observabilitytest.NewTestLogger(t).Logger,
+		settings.New(),
+	)
+
+	assert.ErrorContains(t, err, "no CES URL")
+}
+
+func TestNewEvalTableService_InvalidURL(t *testing.T) {
+	_, err := evaltables.NewEvalTableService(
+		api.NewAPIKeyCredentialProvider("run-api-key"),
+		observabilitytest.NewTestLogger(t).Logger,
+		settings.From(&spb.Settings{XCesBaseUrl: wrapperspb.String("://bad")}),
+	)
+
+	assert.ErrorContains(t, err, "invalid CES URL")
 }
