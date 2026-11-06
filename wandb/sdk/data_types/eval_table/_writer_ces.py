@@ -81,6 +81,7 @@ class _CESWritePayloads:
     dataset_fields: list[pb.EvalTableField]
     scorers: list[pb.EvalTableScorer]
     rows_json: list[str]
+    media_paths: list[str]
     media_cells_examined: int
     oversized_media_cells: int
     oversized_locations: tuple[str, ...]
@@ -204,6 +205,7 @@ class CESWriter:
                 dataset_fields=write_payloads.dataset_fields,
                 scorers=write_payloads.scorers,
                 rows_json=write_payloads.rows_json,
+                media_paths=write_payloads.media_paths,
             ),
         )
 
@@ -262,6 +264,7 @@ class CESWriter:
         media_cells_examined = 0
         oversized_media_cells = 0
         oversized_locations: list[str] = []
+        media_paths: list[str] = []
         class_label_accumulator = _media_ces.ClassLabelAccumulator()
 
         for row_index, row in enumerate(rows):
@@ -274,6 +277,7 @@ class CESWriter:
                     bound_run=bound_run,
                     row_index=row_index,
                     oversized_locations=oversized_locations,
+                    media_paths=media_paths,
                     class_label_accumulator=class_label_accumulator,
                 )
             )
@@ -290,6 +294,7 @@ class CESWriter:
                         bound_run=bound_run,
                         row_index=row_index,
                         oversized_locations=oversized_locations,
+                        media_paths=media_paths,
                         class_label_accumulator=class_label_accumulator,
                     )
                 )
@@ -351,6 +356,7 @@ class CESWriter:
             dataset_fields=dataset_fields,
             scorers=scorers,
             rows_json=rows_json,
+            media_paths=media_paths,
             media_cells_examined=media_cells_examined,
             oversized_media_cells=oversized_media_cells,
             oversized_locations=tuple(oversized_locations),
@@ -366,6 +372,7 @@ class CESWriter:
         bound_run: _BoundRun,
         row_index: int,
         oversized_locations: list[str],
+        media_paths: list[str],
         class_label_accumulator: _media_ces.ClassLabelAccumulator,
     ) -> tuple[dict[str, Any], int, int]:
         """Normalize one input/output mapping and accumulate its inferred types."""
@@ -389,6 +396,7 @@ class CESWriter:
                     bound_run,
                     source=source,
                     column_name=name,
+                    media_paths=media_paths,
                     class_label_accumulator=class_label_accumulator,
                 )
                 if oversized_size is not None:
@@ -446,9 +454,13 @@ class CESWriter:
         *,
         source: _CESFieldSource,
         column_name: str,
+        media_paths: list[str],
         class_label_accumulator: _media_ces.ClassLabelAccumulator,
     ) -> tuple[Any, _CESFieldType, int | None]:
-        """Return W&B media JSON, its field type, and oversized byte count."""
+        """Return W&B media JSON, its field type, and oversized byte count.
+
+        Adds files newly placed in the run's files directory to `media_paths`.
+        """
         try:
             media_cell = _media_ces.prepare_media(
                 value,
@@ -472,6 +484,7 @@ class CESWriter:
                 ),
                 None,
             )
+        media_paths.extend(media_cell.new_run_files)
         field_type = _CESFieldType(value_type="json", media_type=media_cell.media_type)
         oversized_size = media_cell.encoded_size if media_cell.oversized else None
         return media_cell.value, field_type, oversized_size
