@@ -420,6 +420,29 @@ func TestSendLinkArtifact(t *testing.T) {
 		gqlmock.GQLVar("artifactId", gomock.Eq("serverId")))
 }
 
+func TestSendUploadEvalTable_RespondsWithErrorOnFailure(t *testing.T) {
+	// The run isn't initialized, so the upload fails.
+	x := makeSender(t, gqlmock.NewMockClient())
+	uploadEvalTable := &spb.Record{
+		RecordType: &spb.Record_Request{
+			Request: &spb.Request{
+				RequestType: &spb.Request_UploadEvalTable{
+					UploadEvalTable: &spb.UploadEvalTableRequest{Name: "table"},
+				},
+			},
+		},
+	}
+
+	request, outputs := runworktest.SimpleRequest(t, "test-id")
+	x.Sender.SendRecord(uploadEvalTable, request)
+	output := <-outputs
+
+	response := output.GetResultCommunicate().GetResponse().GetUploadEvalTableResponse()
+	require.NotNil(t, response)
+	assert.Contains(t, response.ErrorMessage, "evaltables:")
+	assert.Empty(t, response.EvaluationVersionId)
+}
+
 func TestSendUseArtifact(t *testing.T) {
 	mockGQL := gqlmock.NewMockClient()
 	x := makeSender(t, mockGQL)

@@ -1777,13 +1777,13 @@ pub struct AlertResult {}
 /// step with a PartialHistoryRequest, which produces artificial Records
 /// when a step is committed).
 ///
-/// Next ID: 85
+/// Next ID: 86
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Request {
     #[prost(
         oneof = "request::RequestType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 84, 11, 12, 13, 14, 17, 20, 21, 23, 24, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 77, 78, 81, 82, 83, 1000"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 84, 11, 12, 13, 14, 17, 20, 21, 23, 24, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 77, 78, 81, 82, 83, 85, 1000"
     )]
     pub request_type: ::core::option::Option<request::RequestType>,
 }
@@ -1866,19 +1866,21 @@ pub mod request {
         /// Requests collecting information about the system environment and resources.
         #[prost(message, tag = "83")]
         ProbeSystemInfo(super::ProbeSystemInfoRequest),
+        #[prost(message, tag = "85")]
+        UploadEvalTable(super::UploadEvalTableRequest),
         #[prost(message, tag = "1000")]
         TestInject(super::TestInjectRequest),
     }
 }
 /// Response: all non persistent responses to Requests
 ///
-/// Next ID: 75
+/// Next ID: 77
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
     #[prost(
         oneof = "response::ResponseType",
-        tags = "18, 19, 20, 24, 25, 26, 27, 75, 28, 29, 30, 31, 35, 36, 37, 64, 65, 66, 67, 68, 69, 71, 70, 74, 1000"
+        tags = "18, 19, 20, 24, 25, 26, 27, 75, 28, 29, 30, 31, 35, 36, 37, 64, 65, 66, 67, 68, 69, 71, 70, 74, 76, 1000"
     )]
     pub response_type: ::core::option::Option<response::ResponseType>,
 }
@@ -1935,6 +1937,8 @@ pub mod response {
         SyncResponse(super::SyncResponse),
         #[prost(message, tag = "74")]
         OperationsResponse(super::OperationStatsResponse),
+        #[prost(message, tag = "76")]
+        UploadEvalTableResponse(super::UploadEvalTableResponse),
         #[prost(message, tag = "1000")]
         TestInjectResponse(super::TestInjectResponse),
     }
@@ -2676,6 +2680,77 @@ pub struct LogArtifactResponse {
     #[prost(string, tag = "1")]
     pub artifact_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub error_message: ::prost::alloc::string::String,
+}
+/// UploadEvalTable:
+///
+/// Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
+#[allow(clippy::all)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UploadEvalTableRequest {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub dataset_fields: ::prost::alloc::vec::Vec<EvalTableField>,
+    #[prost(message, repeated, tag = "3")]
+    pub scorers: ::prost::alloc::vec::Vec<EvalTableScorer>,
+    /// The table's rows in order, each a JSON object of the form
+    /// {"input": {...} | null, "output": {...} | null, "scores": {...}}.
+    ///
+    /// Values already normalized for CES: every value matches its column's
+    /// declared type, except that media cells hold W&B media JSON with a `path`
+    /// in the run's files directory or an `artifact_path`.
+    #[prost(string, repeated, tag = "4")]
+    pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Run files referenced by the table's media cells, relative to the run's
+    /// files directory, for wandb-core to upload.
+    #[prost(string, repeated, tag = "6")]
+    pub media_paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "200")]
+    pub info: ::core::option::Option<RequestInfo>,
+}
+#[allow(clippy::all)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EvalTableField {
+    /// "input" or "output".
+    /// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsSource
+    #[prost(string, tag = "1")]
+    pub source: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    /// A CES value type: "boolean", "integer", "number", "string", or "json".
+    /// One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
+    #[prost(string, tag = "3")]
+    pub value_type: ::prost::alloc::string::String,
+    /// The `_type` of a media column's W&B media, like "image-file", or unset
+    /// for other columns. wandb-core converts the column's values to CES
+    /// extension values.
+    #[prost(string, tag = "4")]
+    pub wandb_media_type: ::prost::alloc::string::String,
+}
+#[allow(clippy::all)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EvalTableScorer {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    /// A CES primitive value type: "boolean", "integer", "number", or "string".
+    /// One of: cwevals.EvalTableColumnNewParamsScorersValueType
+    #[prost(string, tag = "2")]
+    pub value_type: ::prost::alloc::string::String,
+}
+#[allow(clippy::all)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UploadEvalTableResponse {
+    #[prost(string, tag = "1")]
+    pub evaluation_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub evaluation_version_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub dataset_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub dataset_version_id: ::prost::alloc::string::String,
+    /// Set if the upload failed, in which case the IDs are unset.
+    #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
 }
 /// DownloadArtifact:

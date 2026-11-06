@@ -703,7 +703,7 @@ message AlertResult {}
 // step with a PartialHistoryRequest, which produces artificial Records
 // when a step is committed).
 //
-// Next ID: 85
+// Next ID: 86
 message Request {
   reserved 18, 22, 75, 76, 79, 80;
 
@@ -751,6 +751,8 @@ message Request {
     // Requests collecting information about the system environment and resources.
     ProbeSystemInfoRequest probe_system_info = 83;
 
+    UploadEvalTableRequest upload_eval_table = 85;
+
     TestInjectRequest test_inject = 1000;
   }
 }
@@ -758,7 +760,7 @@ message Request {
 /*
  * Response: all non persistent responses to Requests
  *
- * Next ID: 75
+ * Next ID: 77
  */
 message Response {
   reserved 32, 72, 73;
@@ -790,6 +792,7 @@ message Response {
     LinkArtifactResponse link_artifact_response = 71;
     SyncResponse sync_response = 70;
     OperationStatsResponse operations_response = 74;
+    UploadEvalTableResponse upload_eval_table_response = 76;
     TestInjectResponse test_inject_response = 1000;
   }
 }
@@ -1285,6 +1288,66 @@ message LogArtifactRequest {
 message LogArtifactResponse {
   string artifact_id = 1;
   string error_message = 2;
+}
+
+/*
+ * UploadEvalTable:
+ *
+ * Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
+ */
+message UploadEvalTableRequest {
+  string name = 1;
+
+  repeated EvalTableField dataset_fields = 2;
+  repeated EvalTableScorer scorers = 3;
+
+  // The table's rows in order, each a JSON object of the form
+  // {"input": {...} | null, "output": {...} | null, "scores": {...}}.
+  //
+  // Values already normalized for CES: every value matches its column's
+  // declared type, except that media cells hold W&B media JSON with a `path`
+  // in the run's files directory or an `artifact_path`.
+  repeated string rows_json = 4;
+
+  // Run files referenced by the table's media cells, relative to the run's
+  // files directory, for wandb-core to upload.
+  repeated string media_paths = 6;
+
+  _RequestInfo _info = 200;
+}
+
+message EvalTableField {
+  // "input" or "output".
+  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsSource
+  string source = 1;
+  string name = 2;
+
+  // A CES value type: "boolean", "integer", "number", "string", or "json".
+  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
+  string value_type = 3;
+
+  // The `_type` of a media column's W&B media, like "image-file", or unset
+  // for other columns. wandb-core converts the column's values to CES
+  // extension values.
+  string wandb_media_type = 4;
+}
+
+message EvalTableScorer {
+  string name = 1;
+
+  // A CES primitive value type: "boolean", "integer", "number", or "string".
+  // One of: cwevals.EvalTableColumnNewParamsScorersValueType
+  string value_type = 2;
+}
+
+message UploadEvalTableResponse {
+  string evaluation_id = 1;
+  string evaluation_version_id = 2;
+  string dataset_id = 3;
+  string dataset_version_id = 4;
+
+  // Set if the upload failed, in which case the IDs are unset.
+  string error_message = 5;
 }
 
 /*
