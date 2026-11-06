@@ -406,3 +406,78 @@ func TestUpload_ProjectNotFound(t *testing.T) {
 	assert.ErrorContains(t, err, "project test-entity/test-project not found")
 	assert.Empty(t, ces.Requests())
 }
+
+func TestUpload_RejectsUnknownColumnTypes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		request *spb.UploadEvalTableRequest
+		wantErr string
+	}{
+		{
+			name: "source",
+			request: &spb.UploadEvalTableRequest{
+				DatasetFields: []*spb.EvalTableField{
+					{Source: "metadata", Name: "a", ValueType: "string"},
+				},
+			},
+			wantErr: `field "a" has unknown source "metadata"`,
+		},
+		{
+			name: "field value type",
+			request: &spb.UploadEvalTableRequest{
+				DatasetFields: []*spb.EvalTableField{
+					{Source: "input", Name: "a", ValueType: "float"},
+				},
+			},
+			wantErr: `field "a" has unknown value type "float"`,
+		},
+		{
+			name: "extension type",
+			request: &spb.UploadEvalTableRequest{
+				DatasetFields: []*spb.EvalTableField{{
+					Source:                 "output",
+					Name:                   "a",
+					ValueType:              "json",
+					ExtensionType:          "wandb-table",
+					ExtensionSchemaVersion: 1,
+				}},
+			},
+			wantErr: `field "a" has unknown extension type "wandb-table"`,
+		},
+		{
+			name: "scorer value type",
+			request: &spb.UploadEvalTableRequest{
+				Scorers: []*spb.EvalTableScorer{{Name: "a", ValueType: "json"}},
+			},
+			wantErr: `scorer "a" has unknown value type "json"`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ces := newFakeCES(t)
+			uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+			_, err := uploader.Upload(context.Background(), tc.request)
+
+			assert.ErrorContains(t, err, tc.wantErr)
+			assert.Empty(t, ces.Requests())
+		})
+	}
+}
+
+func TestUpload_RejectsOversizedColumns(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	// Each "<" is escaped to 6 bytes, so the name alone exceeds the limit.
+	name := strings.Repeat("<", 3<<20)
+	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+		DatasetFields: []*spb.EvalTableField{
+			{Source: "input", Name: name, ValueType: "string"},
+		},
+	})
+
+	assert.ErrorContains(t, err, "columns request is")
+	assert.Empty(t, ces.Requests())
+}

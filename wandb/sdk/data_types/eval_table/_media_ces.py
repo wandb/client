@@ -612,7 +612,7 @@ def _uri_from_media_json(value: dict[str, Any], run: Run) -> str:
 
 
 def _encode_json(value: Any) -> bytes:
-    """Encode JSON exactly as the CES client does for body-size checks."""
+    """Encode JSON for CES rows, which wandb-core sends as is."""
     return json.dumps(
         value,
         allow_nan=False,
