@@ -1292,24 +1292,19 @@ message LogArtifactResponse {
 
 /*
  * UploadEvalTable:
+ *
+ * Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
  */
-
-// Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
-//
-// wandb-core creates the table, declares its columns, appends its rows,
-// and cuts a version, then responds with the resulting CES IDs.
 message UploadEvalTableRequest {
-  // The EvalTable's name.
   string name = 1;
 
-  // Dataset fields and scorers in the order CES should declare them.
   repeated EvalTableField dataset_fields = 2;
   repeated EvalTableScorer scorers = 3;
 
   // The table's rows in order, each a JSON object of the form
-  // {"input": {...}, "output": {...} | null, "scores": {...}}.
+  // {"input": {...} | null, "output": {...} | null, "scores": {...}}.
   //
-  // Values are already normalized for CES: media cells hold CES extension
+  // Values already normalized for CES: media cells hold CES extension
   // values, and every value matches its column's declared type.
   //
   // Only one of {rows_json, rows_file_path} should be set.
@@ -1325,26 +1320,28 @@ message UploadEvalTableRequest {
   _RequestInfo _info = 200;
 }
 
-// A CES dataset field: an input or output column of an EvalTable.
 message EvalTableField {
   // "input" or "output".
+  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsSource
   string source = 1;
   string name = 2;
 
   // A CES value type: "boolean", "integer", "number", "string", or "json".
+  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
   string value_type = 3;
 
   // The CES extension type of a media column, like "wandb-image", and its
   // schema version. Both are unset for other columns.
+  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsExtensionType
   string extension_type = 4;
   int32 extension_schema_version = 5;
 }
 
-// A CES scorer: a score column of an EvalTable.
 message EvalTableScorer {
   string name = 1;
 
   // A CES primitive value type: "boolean", "integer", "number", or "string".
+  // One of: cwevals.EvalTableColumnNewParamsScorersValueType
   string value_type = 2;
 }
 
