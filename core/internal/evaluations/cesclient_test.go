@@ -55,7 +55,7 @@ func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	assert.Equal(t, "yes", req.Header.Get("X-From-Env"))
 }
 
-func TestCESHTTPClient_OnlyAuthenticatesCESRequests(t *testing.T) {
+func TestCESHTTPClient_SendsCredentialsOnlyToCESURL(t *testing.T) {
 	cesServer := apitest.NewRecordingServer()
 	defer cesServer.Close()
 	otherServer := apitest.NewRecordingServer()
