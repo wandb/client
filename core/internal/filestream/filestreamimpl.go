@@ -249,6 +249,7 @@ func (fs *fileStream) send(
 			// have the data in the request.
 			fs.logger.Info("filestream: request sent", "status", resp.Status)
 		}
+		fs.recordAcked(data)
 	}
 
 	defer func(Body io.ReadCloser) {

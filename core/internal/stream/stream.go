@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
@@ -81,13 +82,17 @@ type Stream struct {
 	handler *Handler
 
 	// writerFactory is used to create the Writer component
-	writerFactory *WriterFactory
+	writerFactory     *WriterFactory
+	transactionWriter atomic.Pointer[Writer]
 
 	// flowControlFactory is used to create the FlowControl component
 	flowControlFactory *FlowControlFactory
 
 	// sender is the sender for the stream
 	sender *Sender
+
+	// runEnd records how the run ended. It may be nil.
+	runEnd *RunEndRecorder
 
 	// clientID is a unique ID for the stream
 	clientID sharedmode.ClientID
@@ -148,7 +153,9 @@ func NewStream(
 		flowControlFactory: flowControlFactory,
 		sender:             senderFactory.New(runWork),
 		clientID:           clientID,
+		runEnd:             NewRunEndRecorder(s.GetSyncDir(), logger),
 	}
+	stream.sender.runEnd = stream.runEnd
 
 	logger.Info("stream: created new stream", "id", stream.settings.GetRunID())
 	return stream
@@ -215,6 +222,7 @@ func (s *Stream) maybeSavingToTransactionLog(
 	}
 
 	writer := s.writerFactory.New(w)
+	s.transactionWriter.Store(writer)
 	flowControl := s.flowControlFactory.New(
 		r, writer.Flush, s.recordParser,
 		FlowControlParams{
@@ -222,6 +230,7 @@ func (s *Stream) maybeSavingToTransactionLog(
 			Limit:        1024, // Max unsaved records before blocking.
 		},
 	)
+	flowControl.OnLostRecords(s.onLostRecords)
 
 	s.wg.Add(1)
 	go func() {
@@ -381,4 +390,41 @@ func (s *Stream) runURLAndName() (string, string, error) {
 	}
 
 	return url, upserter.DisplayName(), nil
+}
+
+// onLostRecords reports saved records that flow control skipped.
+//
+// The records are still in the transaction log, but they were never uploaded
+// while the run was live.
+func (s *Stream) onLostRecords(lost int64, _ error) {
+	s.runEnd.RecordsLost(lost)
+	s.sender.printer.Errorf(
+		"%d records could not be uploaded while the run was live."+
+			" Use `wandb sync --include-online` after the run to upload them.",
+		lost,
+	)
+}
+
+// SyncTransactionLog flushes and fsyncs records already written to the
+// transaction log's buffer.
+//
+// It does not promise that queued IPC records or network uploads are complete.
+func (s *Stream) SyncTransactionLog() {
+	if w := s.transactionWriter.Load(); w != nil {
+		if err := w.Sync(); err != nil {
+			s.logger.Error("stream: shutdown log sync failed", "error", err)
+		}
+	}
+}
+
+// RecordShutdownStarted notes in the run-end record that a service shutdown
+// began, before the shutdown tries to finish the run.
+func (s *Stream) RecordShutdownStarted(reason string) {
+	s.runEnd.ShutdownStarted(reason)
+}
+
+// RecordShutdownFinished notes whether the shutdown finished the run within
+// its grace period.
+func (s *Stream) RecordShutdownFinished(drained bool) {
+	s.runEnd.ShutdownFinished(drained)
 }

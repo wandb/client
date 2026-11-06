@@ -87,6 +87,8 @@ func serviceMain() int {
 		"If --detached is set, shut down the service after this much idle time"+
 			" with no connected clients. 0 disables the idle shutdown.",
 	)
+	shutdownGrace := flag.Duration("shutdown-grace-period", 5*time.Second,
+		"Maximum time to flush active runs on a signal or parent death. Zero stops immediately.")
 	logLevel := flag.Int("log-level", 0,
 		"Specifies the log level to use for logging. -4: debug, 0: info, 4: warn, 8: error.")
 	disableAnalytics := flag.Bool("no-observability", false,
@@ -125,6 +127,14 @@ func serviceMain() int {
 		return exitCodeErrorArgs
 	}
 
+	if *shutdownGrace < 0 {
+		fmt.Fprintln(os.Stderr, "Error: --shutdown-grace-period must be >= 0")
+		return exitCodeErrorArgs
+	}
+	// Install the handler before enabling the Linux parent-death signal.
+	signalCh := make(chan os.Signal, 2)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
 	var shutdownOnParentExitEnabled bool
 	if *pid != 0 && *enableOsPidShutdown && !*detached {
 		shutdownOnParentExitEnabled = processlib.ShutdownOnParentExit(*pid)
@@ -167,10 +177,6 @@ func serviceMain() int {
 
 	analytics.ConfigureOTelErrorHandler(slog.Default())
 
-	// Record certain signals in the log file for debugging.
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
-
 	srv := server.NewServer(
 		server.ServerParams{
 			Commit:              commit,
@@ -181,29 +187,46 @@ func serviceMain() int {
 			ParentPID:           *pid,
 			Detached:            *detached,
 			IdleTimeout:         *idleTimeout,
+			ShutdownGracePeriod: *shutdownGrace,
 		},
 	)
 	srvCh := make(chan error, 1)
 	go func() { srvCh <- srv.Serve(*portFilename) }()
 
-	for {
-		select {
-		case err := <-srvCh:
-			switch {
-			case err != nil:
-				slog.Error("main: Serve() returned error", "error", err)
-				return exitCodeErrorInternal
-			default:
-				return exitCodeSuccess
-			}
-		case sig := <-signalCh:
-			slog.Info("main: received shutdown signal", "signal", sig)
-			srv.ForceStop()
-			if err := <-srvCh; err != nil {
-				slog.Error("main: Serve() returned error", "error", err)
-			}
-			return exitCodeSignal
+	return waitForServer(srv, srvCh, signalCh)
+}
+
+// waitForServer returns the process exit code once the server stops.
+//
+// The first signal starts a graceful shutdown and a second one forces it.
+func waitForServer(
+	srv *server.Server,
+	srvCh <-chan error,
+	signalCh <-chan os.Signal,
+) int {
+	select {
+	case err := <-srvCh:
+		if err != nil {
+			slog.Error("main: Serve() returned error", "error", err)
+			return exitCodeErrorInternal
 		}
+		return exitCodeSuccess
+
+	case sig := <-signalCh:
+		slog.Info("main: received shutdown signal", "signal", sig)
+		srv.Shutdown("signal: " + sig.String())
+
+		var err error
+		select {
+		case err = <-srvCh:
+		case <-signalCh:
+			srv.ForceStop()
+			err = <-srvCh
+		}
+		if err != nil {
+			slog.Error("main: Serve() returned error", "error", err)
+		}
+		return exitCodeSignal
 	}
 }
 

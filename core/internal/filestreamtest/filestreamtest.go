@@ -75,3 +75,9 @@ func (fs *FakeFileStream) IsStopped() bool {
 }
 
 func (fs *FakeFileStream) Err() error { return nil }
+
+func (fs *FakeFileStream) Dead() <-chan struct{} { return nil }
+
+func (fs *FakeFileStream) Progress() filestream.Progress {
+	return filestream.Progress{}
+}

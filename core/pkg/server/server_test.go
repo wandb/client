@@ -144,3 +144,67 @@ func TestServe_ForceStopReturnsWithoutWaitingForConnections(t *testing.T) {
 		t.Fatal("timed out waiting for Serve() to return")
 	}
 }
+
+func TestShutdownWaitsForConnectionsWithinGrace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
+		release := make(chan struct{})
+		s.connectionsWG.Go(func() { <-release })
+		s.Shutdown("test")
+		synctest.Wait()
+		select {
+		case <-s.shutdownDone:
+			t.Fatal("returned before draining")
+		default:
+		}
+		require.ErrorIs(t, s.serverLifetimeCtx.Err(), context.Canceled)
+		close(release)
+		synctest.Wait()
+		select {
+		case <-s.shutdownDone:
+		default:
+			t.Fatal("did not finish after draining")
+		}
+	})
+}
+
+func TestShutdownDeadlineAndSecondSignal(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(map[bool]string{false: "deadline", true: "second signal"}[force], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
+				release := make(chan struct{})
+				s.connectionsWG.Go(func() { <-release })
+				s.Shutdown("test")
+				synctest.Wait()
+				if force {
+					s.ForceStop()
+				} else {
+					time.Sleep(time.Minute)
+				}
+				synctest.Wait()
+				select {
+				case <-s.shutdownDone:
+				default:
+					t.Fatal("shutdown exceeded its bound")
+				}
+				close(release)
+			})
+		})
+	}
+}
+
+func TestShutdownRepeatedCalls(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := NewServer(ServerParams{ShutdownGracePeriod: time.Minute})
+		for range 10 {
+			go s.Shutdown("test")
+		}
+		synctest.Wait()
+		select {
+		case <-s.shutdownDone:
+		default:
+			t.Fatal("shutdown did not finish")
+		}
+	})
+}

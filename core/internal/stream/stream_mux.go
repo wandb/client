@@ -82,3 +82,20 @@ func (sm *StreamMux) FinishAndCloseAllStreams(exitCode int32) {
 	wg.Wait()
 	slog.Debug("all streams were closed")
 }
+
+// Streams returns the active streams.
+func (sm *StreamMux) Streams() []*Stream {
+	sm.mutex.RLock()
+	defer sm.mutex.RUnlock()
+	return slices.Collect(maps.Values(sm.mux))
+}
+
+// SyncTransactionLogs flushes and fsyncs each stream's transaction log
+// independently of network I/O.
+func SyncTransactionLogs(streams []*Stream) {
+	var wg sync.WaitGroup
+	for _, stream := range streams {
+		wg.Go(stream.SyncTransactionLog)
+	}
+	wg.Wait()
+}
