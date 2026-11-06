@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"net/url"
 	"os"
 	"sync"
 
@@ -61,7 +60,6 @@ type Uploader struct {
 }
 
 type UploaderParams struct {
-	BaseURL            api.WBBaseURL
 	CredentialProvider api.CredentialProvider
 	GraphqlClient      graphql.Client
 	Logger             *observability.CoreLogger
@@ -74,7 +72,7 @@ func NewUploader(params UploaderParams) *Uploader {
 		graphqlClient: params.GraphqlClient,
 		runHandle:     params.RunHandle,
 		evalTables: sync.OnceValues(func() (*ces.EvalTableService, error) {
-			cesBaseURL, err := CESBaseURL((*url.URL)(params.BaseURL))
+			cesBaseURL, err := CESBaseURL()
 			if err != nil {
 				return nil, fmt.Errorf("evaluations: invalid CES URL: %v", err)
 			}

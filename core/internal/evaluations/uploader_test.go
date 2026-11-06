@@ -100,7 +100,7 @@ func newTestUploader(
 	projectJSON string,
 ) (*evaluations.Uploader, *gqlmock.MockClient) {
 	t.Helper()
-	t.Setenv("CES_BASE_URL", "")
+	t.Setenv("CES_BASE_URL", ces.URL+"/evaluations")
 
 	mockGQL := gqlmock.NewMockClient()
 	mockGQL.StubMatchOnce(gqlmock.WithOpName("ProjectInternalID"), projectJSON)
@@ -109,7 +109,6 @@ func newTestUploader(
 	require.NoError(t, runHandle.Init(runupsertertest.NewOfflineUpserter(t)))
 
 	return evaluations.NewUploader(evaluations.UploaderParams{
-		BaseURL:            mustParseURL(t, ces.URL),
 		CredentialProvider: api.NewAPIKeyCredentialProvider("test-api-key"),
 		GraphqlClient:      mockGQL,
 		Logger:             observabilitytest.NewTestLogger(t),
