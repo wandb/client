@@ -181,35 +181,84 @@ func TestUpload(t *testing.T) {
 	assert.Equal(t, tablePath+"/eval-id/versions", requests[3].Path)
 }
 
-func TestUpload_DeclaresExtensionColumns(t *testing.T) {
+func TestUpload_PassesThroughAllValueTypes(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// The large integer and 1.0 would change if decoded as float64.
+	row := `{` +
+		`"input":{` +
+		`"flag":true,` +
+		`"count":9007199254740993,` +
+		`"temperature":1.0,` +
+		`"prompt":"draw a cat",` +
+		`"config":{"seed":7,"tags":["a","b"]}` +
+		`},` +
+		`"output":{"image":{` +
+		`"extension_type":"wandb-image",` +
+		`"schema_version":1,` +
+		`"wb_media_type":"image-file",` +
+		`"format":"png",` +
+		`"sha256":"210b9798eb53baa4e69d31c1071cf03d212b8ad0ca30cf321e0ea82e120aac26",` +
+		`"size":1024,` +
+		`"uri":"wandb-run-file://entity/project/run-id/media/images/cat.png",` +
+		`"width":32,` +
+		`"height":32,` +
+		`"caption":"a cat"` +
+		`}},` +
+		`"scores":{"passed":false,"votes":3,"accuracy":0.5,"grade":"B"}` +
+		`}`
 
 	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
 		Name: "my-table",
-		DatasetFields: []*spb.EvalTableField{{
-			Source:                 "output",
-			Name:                   "image",
-			ValueType:              "json",
-			ExtensionType:          "wandb-image",
-			ExtensionSchemaVersion: 1,
-		}},
+		DatasetFields: []*spb.EvalTableField{
+			{Source: "input", Name: "flag", ValueType: "boolean"},
+			{Source: "input", Name: "count", ValueType: "integer"},
+			{Source: "input", Name: "temperature", ValueType: "number"},
+			{Source: "input", Name: "prompt", ValueType: "string"},
+			{Source: "input", Name: "config", ValueType: "json"},
+			{
+				Source:                 "output",
+				Name:                   "image",
+				ValueType:              "json",
+				ExtensionType:          "wandb-image",
+				ExtensionSchemaVersion: 1,
+			},
+		},
+		Scorers: []*spb.EvalTableScorer{
+			{Name: "passed", ValueType: "boolean"},
+			{Name: "votes", ValueType: "integer"},
+			{Name: "accuracy", ValueType: "number"},
+			{Name: "grade", ValueType: "string"},
+		},
+		RowsJson: []string{row},
 	})
 
 	require.NoError(t, err)
 	requests := ces.Requests()
-	require.Len(t, requests, 3) // No rows request for an empty table.
-	assert.Equal(t, tablePath+"/eval-id/columns", requests[1].Path)
+	require.Len(t, requests, 4)
 	assert.JSONEq(t, `{
-		"dataset_fields": [{
-			"source": "output",
-			"name": "image",
-			"value_type": "json",
-			"extension_type": "wandb-image",
-			"extension_schema_version": 1
-		}],
-		"scorers": []
+		"dataset_fields": [
+			{"source": "input", "name": "flag", "value_type": "boolean"},
+			{"source": "input", "name": "count", "value_type": "integer"},
+			{"source": "input", "name": "temperature", "value_type": "number"},
+			{"source": "input", "name": "prompt", "value_type": "string"},
+			{"source": "input", "name": "config", "value_type": "json"},
+			{
+				"source": "output",
+				"name": "image",
+				"value_type": "json",
+				"extension_type": "wandb-image",
+				"extension_schema_version": 1
+			}
+		],
+		"scorers": [
+			{"name": "passed", "value_type": "boolean"},
+			{"name": "votes", "value_type": "integer"},
+			{"name": "accuracy", "value_type": "number"},
+			{"name": "grade", "value_type": "string"}
+		]
 	}`, requests[1].Body)
+	assert.Equal(t, `{"rows":[`+row+`]}`, requests[2].Body)
 }
 
 func TestUpload_IdempotencyKeys(t *testing.T) {
