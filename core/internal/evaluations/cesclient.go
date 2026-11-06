@@ -1,8 +1,9 @@
-// Package evaluations is a client for the CoreWeave Evaluations Service (CES).
+// Package evaluations is a client for the CoreWeave Evaluation Service (CES).
 package evaluations
 
 import (
 	"log/slog"
+	"net/url"
 
 	ces "github.com/wandb/cwevals-go"
 	"github.com/wandb/cwevals-go/option"
@@ -14,6 +15,7 @@ import (
 )
 
 func NewCESHTTPClient(
+	cesBaseURL *url.URL,
 	credentialProvider api.CredentialProvider,
 	logger *slog.Logger,
 	s *settings.Settings,
@@ -30,9 +32,7 @@ func NewCESHTTPClient(
 		Logger:             logger,
 		PreRetryLayers: httplayers.Concat(
 			httplayers.DefaultHeaders(s.GetExtraHTTPHeaders()),
-			// Unlike other clients, not limited to a URL: only the CES SDK
-			// uses this client, and only for its base URL.
-			credentialProvider,
+			httplayers.LimitTo(cesBaseURL, credentialProvider),
 		),
 	})
 
@@ -43,11 +43,11 @@ func NewCESHTTPClient(
 // retries with httpClient instead of the SDK's environment credentials and
 // retries.
 func NewEvalTableService(
-	cesBaseURL string,
+	cesBaseURL *url.URL,
 	httpClient api.HTTPDoer,
 ) *ces.EvalTableService {
 	return ces.NewClient(
-		option.WithBaseURL(cesBaseURL),
+		option.WithBaseURL(cesBaseURL.String()),
 		option.WithHTTPClient(httpClient),
 		option.WithMaxRetries(0),
 	).EvalTables

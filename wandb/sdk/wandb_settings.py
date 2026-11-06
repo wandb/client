@@ -615,7 +615,7 @@ class Settings(BaseModel, validate_assignment=True):
     # a part of the public API as they may change or be removed in future versions.
 
     x_ces_base_url_override: str | None = None
-    """Override for the CoreWeave Evaluations service (CES) URL.
+    """Override for the CoreWeave Evaluation Service (CES) URL.
 
     The `_ces_base_url` is normally computed based on `base_url`, but this
     can be used to set it explicitly.
@@ -1649,7 +1649,7 @@ class Settings(BaseModel, validate_assignment=True):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def _ces_base_url(self) -> str:
-        """The URL for the CoreWeave Evaluations service (CES)."""
+        """The URL for the CoreWeave Evaluation Service (CES)."""
         return self.x_ces_base_url_override or urls.api_to_ces_url(self.base_url)
 
     @computed_field  # type: ignore[prop-decorator]

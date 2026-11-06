@@ -676,9 +676,9 @@ type Settings struct {
 	XStatsCoreweaveMetadataBaseUrl *wrapperspb.StringValue `protobuf:"bytes,192,opt,name=x_stats_coreweave_metadata_base_url,json=xStatsCoreweaveMetadataBaseUrl,proto3" json:"x_stats_coreweave_metadata_base_url,omitempty"`
 	// The relative path on the CoreWeave metadata server to which to make requests.
 	XStatsCoreweaveMetadataEndpoint *wrapperspb.StringValue `protobuf:"bytes,193,opt,name=x_stats_coreweave_metadata_endpoint,json=xStatsCoreweaveMetadataEndpoint,proto3" json:"x_stats_coreweave_metadata_endpoint,omitempty"`
-	XAwsLambda                      *wrapperspb.BoolValue   `protobuf:"bytes,2,opt,name=_aws_lambda,json=AwsLambda,proto3" json:"_aws_lambda,omitempty"`
-	// The URL for the CoreWeave Evaluations service (CES).
+	// The URL for the CoreWeave Evaluation Service (CES).
 	XCesBaseUrl                     *wrapperspb.StringValue  `protobuf:"bytes,212,opt,name=_ces_base_url,json=CesBaseUrl,proto3" json:"_ces_base_url,omitempty"`
+	XAwsLambda                      *wrapperspb.BoolValue    `protobuf:"bytes,2,opt,name=_aws_lambda,json=AwsLambda,proto3" json:"_aws_lambda,omitempty"`
 	XCliOnlyMode                    *wrapperspb.BoolValue    `protobuf:"bytes,4,opt,name=x_cli_only_mode,json=xCliOnlyMode,proto3" json:"x_cli_only_mode,omitempty"`
 	XColab                          *wrapperspb.BoolValue    `protobuf:"bytes,5,opt,name=_colab,json=Colab,proto3" json:"_colab,omitempty"`
 	XDisableViewer                  *wrapperspb.BoolValue    `protobuf:"bytes,11,opt,name=x_disable_viewer,json=xDisableViewer,proto3" json:"x_disable_viewer,omitempty"`
@@ -1499,16 +1499,16 @@ func (x *Settings) GetXStatsCoreweaveMetadataEndpoint() *wrapperspb.StringValue 
 	return nil
 }
 
-func (x *Settings) GetXAwsLambda() *wrapperspb.BoolValue {
+func (x *Settings) GetXCesBaseUrl() *wrapperspb.StringValue {
 	if x != nil {
-		return x.XAwsLambda
+		return x.XCesBaseUrl
 	}
 	return nil
 }
 
-func (x *Settings) GetXCesBaseUrl() *wrapperspb.StringValue {
+func (x *Settings) GetXAwsLambda() *wrapperspb.BoolValue {
 	if x != nil {
-		return x.XCesBaseUrl
+		return x.XAwsLambda
 	}
 	return nil
 }
@@ -2250,10 +2250,10 @@ const file_wandb_proto_wandb_settings_proto_rawDesc = "" +
 	"\x16x_skip_transaction_log\x18\xbf\x01 \x01(\v2\x1a.google.protobuf.BoolValueR\x13xSkipTransactionLog\x12e\n" +
 	" x_transaction_log_flush_interval\x18\xd1\x01 \x01(\v2\x1c.google.protobuf.DoubleValueR\x1cxTransactionLogFlushInterval\x12j\n" +
 	"#x_stats_coreweave_metadata_base_url\x18\xc0\x01 \x01(\v2\x1c.google.protobuf.StringValueR\x1exStatsCoreweaveMetadataBaseUrl\x12k\n" +
-	"#x_stats_coreweave_metadata_endpoint\x18\xc1\x01 \x01(\v2\x1c.google.protobuf.StringValueR\x1fxStatsCoreweaveMetadataEndpoint\x12:\n" +
-	"\v_aws_lambda\x18\x02 \x01(\v2\x1a.google.protobuf.BoolValueR\tAwsLambda\x12@\n" +
+	"#x_stats_coreweave_metadata_endpoint\x18\xc1\x01 \x01(\v2\x1c.google.protobuf.StringValueR\x1fxStatsCoreweaveMetadataEndpoint\x12@\n" +
 	"\r_ces_base_url\x18\xd4\x01 \x01(\v2\x1c.google.protobuf.StringValueR\n" +
-	"CesBaseUrl\x12A\n" +
+	"CesBaseUrl\x12:\n" +
+	"\v_aws_lambda\x18\x02 \x01(\v2\x1a.google.protobuf.BoolValueR\tAwsLambda\x12A\n" +
 	"\x0fx_cli_only_mode\x18\x04 \x01(\v2\x1a.google.protobuf.BoolValueR\fxCliOnlyMode\x121\n" +
 	"\x06_colab\x18\x05 \x01(\v2\x1a.google.protobuf.BoolValueR\x05Colab\x12D\n" +
 	"\x10x_disable_viewer\x18\v \x01(\v2\x1a.google.protobuf.BoolValueR\x0exDisableViewer\x12M\n" +
@@ -2486,8 +2486,8 @@ var file_wandb_proto_wandb_settings_proto_depIdxs = []int32{
 	11,  // 101: wandb_internal.Settings.x_transaction_log_flush_interval:type_name -> google.protobuf.DoubleValue
 	9,   // 102: wandb_internal.Settings.x_stats_coreweave_metadata_base_url:type_name -> google.protobuf.StringValue
 	9,   // 103: wandb_internal.Settings.x_stats_coreweave_metadata_endpoint:type_name -> google.protobuf.StringValue
-	10,  // 104: wandb_internal.Settings._aws_lambda:type_name -> google.protobuf.BoolValue
-	9,   // 105: wandb_internal.Settings._ces_base_url:type_name -> google.protobuf.StringValue
+	9,   // 104: wandb_internal.Settings._ces_base_url:type_name -> google.protobuf.StringValue
+	10,  // 105: wandb_internal.Settings._aws_lambda:type_name -> google.protobuf.BoolValue
 	10,  // 106: wandb_internal.Settings.x_cli_only_mode:type_name -> google.protobuf.BoolValue
 	10,  // 107: wandb_internal.Settings._colab:type_name -> google.protobuf.BoolValue
 	10,  // 108: wandb_internal.Settings.x_disable_viewer:type_name -> google.protobuf.BoolValue
