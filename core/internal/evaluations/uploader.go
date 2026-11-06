@@ -49,6 +49,7 @@ type Uploader struct {
 	graphqlClient graphql.Client
 	runHandle     *runhandle.RunHandle
 
+	// evalTables is nil if the settings have no CES URL.
 	evalTables *ces.EvalTableService
 
 	// scopeMu guards scopeID.
@@ -67,15 +68,23 @@ type UploaderParams struct {
 }
 
 func NewUploader(params UploaderParams) *Uploader {
-	return &Uploader{
+	u := &Uploader{
 		graphqlClient: params.GraphqlClient,
 		runHandle:     params.RunHandle,
-		evalTables: NewEvalTableService(NewCESHTTPClient(
-			params.CredentialProvider,
-			params.Logger.Logger,
-			params.Settings,
-		)),
 	}
+
+	if cesBaseURL := params.Settings.GetCESBaseURL(); cesBaseURL != "" {
+		u.evalTables = NewEvalTableService(
+			cesBaseURL,
+			NewCESHTTPClient(
+				params.CredentialProvider,
+				params.Logger.Logger,
+				params.Settings,
+			),
+		)
+	}
+
+	return u
 }
 
 // Upload creates an EvalTable in CES, adds its columns and rows,
@@ -92,6 +101,9 @@ func (u *Uploader) Upload(
 	}
 
 	evalTables := u.evalTables
+	if evalTables == nil {
+		return nil, errors.New("evaluations: no CES URL in settings")
+	}
 
 	upserter, err := u.runHandle.Upserter()
 	if err != nil {
