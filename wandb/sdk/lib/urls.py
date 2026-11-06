@@ -91,7 +91,7 @@ def normalize_forge_base_url(url: str) -> str:
 
 
 def api_to_ces_url(api_url: str) -> str:
-    """Returns the CoreWeave Evaluations service (CES) URL for a W&B API URL.
+    """Returns the CoreWeave Evaluation Service (CES) URL for a W&B API URL.
 
     CES is on its own host for multi-tenant SaaS, including through Forge,
     and under the W&B server's /evaluations path otherwise.
