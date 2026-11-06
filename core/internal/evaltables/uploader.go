@@ -244,11 +244,7 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 	return params
 }
 
-// validateColumns rejects a columns request that CES would, before the
-// EvalTable is created.
-//
-// The CES SDK's types define the valid values, so updating the CES SDK
-// updates the check.
+// validateColumns uses the CES SDK to check enum types
 func validateColumns(columns ces.EvalTableColumnNewParams) error {
 	for _, field := range columns.DatasetFields.Value {
 		switch {
