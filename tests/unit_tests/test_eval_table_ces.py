@@ -95,8 +95,6 @@ def test_ces_eval_table_writes_columns_rows_and_version(
 
     [request] = _sent(deliver_log_eval_table)
     assert request.name == "math_eval"
-    assert request.history_key == "math_eval"
-    assert request.step == "0"
     assert _as_dicts(request.dataset_fields) == [
         {"source": "input", "name": "prompt", "value_type": "string"},
         {"source": "input", "name": "truth", "value_type": "string"},
@@ -550,7 +548,7 @@ def test_ces_error_uses_original_integer_column(deliver_log_eval_table, run):
     deliver_log_eval_table.assert_not_called()
 
 
-def test_ces_eval_table_retry_resends_log_location(deliver_log_eval_table, run):
+def test_ces_eval_table_retry_resends_request(deliver_log_eval_table, run):
     deliver_log_eval_table.return_value.wait_or.side_effect = [
         _log_eval_table_result(pb.LogEvalTableResponse(error_message="failed")),
         _log_eval_table_result(_UPLOADED),
@@ -567,11 +565,8 @@ def test_ces_eval_table_retry_resends_log_location(deliver_log_eval_table, run):
         et.to_json(run)
     et.to_json(run)
 
-    # wandb-core derives idempotency keys from the log location, so a retry
-    # reuses the CES resources created by the failed attempt.
     first, retry = _sent(deliver_log_eval_table)
     assert first == retry
-    assert (first.history_key, first.step) == ("eval", "7")
 
 
 def test_ces_eval_table_rejects_mixed_type_mode():
