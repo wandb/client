@@ -484,13 +484,13 @@ def test_external_reference_artifact_image_is_null_by_default(
 
     assert json.loads(prepared.rows_json[0])["input"]["image"] is None
     assert prepared.dataset_fields == [
-        {
-            "source": "input",
-            "name": "image",
-            "value_type": "json",
-            "extension_type": "wandb-image",
-            "extension_schema_version": 1,
-        }
+        pb.EvalTableField(
+            source="input",
+            name="image",
+            value_type="json",
+            extension_type="wandb-image",
+            extension_schema_version=1,
+        )
     ]
     warning.assert_called_once()
 
@@ -527,13 +527,13 @@ def test_external_reference_audio_is_null_by_default(run_factory, monkeypatch):
 
     assert json.loads(prepared.rows_json[0])["input"]["audio"] is None
     assert prepared.dataset_fields == [
-        {
-            "source": "input",
-            "name": "audio",
-            "value_type": "json",
-            "extension_type": "wandb-audio",
-            "extension_schema_version": 1,
-        }
+        pb.EvalTableField(
+            source="input",
+            name="audio",
+            value_type="json",
+            extension_type="wandb-audio",
+            extension_schema_version=1,
+        )
     ]
     warning.assert_called_once()
 
@@ -863,7 +863,7 @@ def test_external_reference_artifact_image_overlays_are_null_by_default(
     )
 
     assert json.loads(prepared.rows_json[0])["input"]["image"] is None
-    assert prepared.dataset_fields[0]["extension_type"] == "wandb-image"
+    assert prepared.dataset_fields[0].extension_type == "wandb-image"
     warning.assert_called_once()
 
 
