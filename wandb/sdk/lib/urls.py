@@ -23,7 +23,7 @@ CES_HOSTS = {
     "api.wandb.ai": "evaluations.wandb.ai",
     "api.qa.wandb.ai": "evaluations.qa.wandb.ai",
 }
-"""Maps each W&B API host to the separate host serving its Evaluations service."""
+"""Maps each W&B API host to the CoreWeave Evaluation Service instance linked to it."""
 
 _URL_VALIDATOR = SchemaValidator(
     core_schema.url_schema(
@@ -91,7 +91,7 @@ def normalize_forge_base_url(url: str) -> str:
 
 
 def api_to_ces_url(api_url: str) -> str:
-    """Returns the CoreWeave Evaluations service (CES) URL for a W&B API URL.
+    """Returns the CoreWeave Evaluation Service (CES) URL for a W&B API URL.
 
     CES is on its own host for multi-tenant SaaS, including through Forge,
     and under the W&B server's /evaluations path otherwise.
