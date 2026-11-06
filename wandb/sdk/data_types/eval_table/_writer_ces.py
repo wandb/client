@@ -232,7 +232,7 @@ class CESWriter:
                 f"First affected: {locations}.",
             )
 
-        request = pb.LogEvalTableRequest(
+        request = pb.UploadEvalTableRequest(
             name=name,
             dataset_fields=[
                 pb.EvalTableField(**dataset_field)
@@ -246,7 +246,7 @@ class CESWriter:
         else:
             request.rows_json.extend(write_payloads.rows_json)
 
-        response = bound_run.run._log_eval_table(request)
+        response = bound_run.run._upload_eval_table(request)
 
         _logger.debug(
             "CES EvalTable recorded evaluation_version_id=%s",

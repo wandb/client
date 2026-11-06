@@ -751,7 +751,7 @@ message Request {
     // Requests collecting information about the system environment and resources.
     ProbeSystemInfoRequest probe_system_info = 83;
 
-    LogEvalTableRequest log_eval_table = 85;
+    UploadEvalTableRequest upload_eval_table = 85;
 
     TestInjectRequest test_inject = 1000;
   }
@@ -792,7 +792,7 @@ message Response {
     LinkArtifactResponse link_artifact_response = 71;
     SyncResponse sync_response = 70;
     OperationStatsResponse operations_response = 74;
-    LogEvalTableResponse log_eval_table_response = 76;
+    UploadEvalTableResponse upload_eval_table_response = 76;
     TestInjectResponse test_inject_response = 1000;
   }
 }
@@ -1291,14 +1291,14 @@ message LogArtifactResponse {
 }
 
 /*
- * LogEvalTable:
+ * UploadEvalTable:
  */
 
 // Uploads an EvalTable to the CoreWeave Evaluation Service (CES).
 //
 // wandb-core creates the table, declares its columns, appends its rows,
 // and cuts a version, then responds with the resulting CES IDs.
-message LogEvalTableRequest {
+message UploadEvalTableRequest {
   // The EvalTable's name.
   string name = 1;
 
@@ -1348,7 +1348,7 @@ message EvalTableScorer {
   string value_type = 2;
 }
 
-message LogEvalTableResponse {
+message UploadEvalTableResponse {
   string evaluation_id = 1;
   string evaluation_version_id = 2;
   string dataset_id = 3;

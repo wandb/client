@@ -1789,7 +1789,7 @@ pub mod request {
         #[prost(message, tag = "83")]
         ProbeSystemInfo(super::ProbeSystemInfoRequest),
         #[prost(message, tag = "85")]
-        LogEvalTable(super::LogEvalTableRequest),
+        UploadEvalTable(super::UploadEvalTableRequest),
         #[prost(message, tag = "1000")]
         TestInject(super::TestInjectRequest),
     }
@@ -1858,7 +1858,7 @@ pub mod response {
         #[prost(message, tag = "74")]
         OperationsResponse(super::OperationStatsResponse),
         #[prost(message, tag = "76")]
-        LogEvalTableResponse(super::LogEvalTableResponse),
+        UploadEvalTableResponse(super::UploadEvalTableResponse),
         #[prost(message, tag = "1000")]
         TestInjectResponse(super::TestInjectResponse),
     }
@@ -2536,7 +2536,7 @@ pub struct LogArtifactResponse {
 /// wandb-core creates the table, declares its columns, appends its rows,
 /// and cuts a version, then responds with the resulting CES IDs.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LogEvalTableRequest {
+pub struct UploadEvalTableRequest {
     /// The EvalTable's name.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -2592,7 +2592,7 @@ pub struct EvalTableScorer {
     pub value_type: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct LogEvalTableResponse {
+pub struct UploadEvalTableResponse {
     #[prost(string, tag = "1")]
     pub evaluation_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]

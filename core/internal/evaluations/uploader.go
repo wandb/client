@@ -103,8 +103,8 @@ func newEvalTableService(params UploaderParams) (*ces.EvalTableService, error) {
 // rows file, if any.
 func (u *Uploader) Upload(
 	ctx context.Context,
-	request *spb.LogEvalTableRequest,
-) (*spb.LogEvalTableResponse, error) {
+	request *spb.UploadEvalTableRequest,
+) (*spb.UploadEvalTableResponse, error) {
 	if path := request.GetRowsFilePath(); path != "" {
 		defer func() { _ = os.Remove(path) }()
 	}
@@ -180,7 +180,7 @@ func (u *Uploader) Upload(
 		return nil, fmt.Errorf("evaluations: failed to cut version: %v", err)
 	}
 
-	return &spb.LogEvalTableResponse{
+	return &spb.UploadEvalTableResponse{
 		EvaluationId:        created.EvaluationID,
 		EvaluationVersionId: version.EvaluationVersionID,
 		DatasetId:           created.DatasetID,
@@ -271,7 +271,7 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 }
 
 // requestRows returns the request's JSON-encoded rows.
-func requestRows(request *spb.LogEvalTableRequest) iter.Seq2[[]byte, error] {
+func requestRows(request *spb.UploadEvalTableRequest) iter.Seq2[[]byte, error] {
 	if path := request.GetRowsFilePath(); path != "" {
 		return rowsFromFile(path)
 	}

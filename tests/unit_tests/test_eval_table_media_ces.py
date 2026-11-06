@@ -36,12 +36,12 @@ def run_factory(mock_run, tmp_path):
 
 
 @pytest.fixture
-def deliver_log_eval_table(monkeypatch) -> MagicMock:
+def deliver_upload_eval_table(monkeypatch) -> MagicMock:
     """Replace wandb-core's EvalTable upload with one that succeeds."""
     deliver = MagicMock()
     deliver.return_value.wait_or.return_value = pb.Result(
         response=pb.Response(
-            log_eval_table_response=pb.LogEvalTableResponse(
+            upload_eval_table_response=pb.UploadEvalTableResponse(
                 evaluation_id="evaluation-1",
                 evaluation_version_id="evaluation-version-1",
                 dataset_id="dataset-1",
@@ -49,7 +49,7 @@ def deliver_log_eval_table(monkeypatch) -> MagicMock:
             )
         )
     )
-    monkeypatch.setattr(InterfaceBase, "deliver_log_eval_table", deliver)
+    monkeypatch.setattr(InterfaceBase, "deliver_upload_eval_table", deliver)
     return deliver
 
 
@@ -657,7 +657,7 @@ def test_image_with_masks_and_boxes_uses_run_file_uris(run_factory, tmp_path):
 
 def test_image_overlay_keys_register_distinct_class_labels(
     run_factory,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -713,7 +713,7 @@ def test_image_overlay_keys_register_distinct_class_labels(
 
 def test_image_rows_merge_overlay_class_labels(
     run_factory,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -755,7 +755,7 @@ def test_image_rows_merge_overlay_class_labels(
 
 def test_image_overlay_class_labels_merge_with_resumed_string_ids(
     run_factory,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -791,7 +791,7 @@ def test_image_overlay_class_labels_merge_with_resumed_string_ids(
 
 def test_image_columns_register_distinct_overlay_class_labels(
     run_factory,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     tmp_path,
     artifact_image_factory,
 ):
@@ -910,7 +910,7 @@ def test_cell_at_size_limit_becomes_null(run_factory, tmp_path, monkeypatch):
 
 def test_eval_table_writes_supported_media_extensions_to_ces(
     run_factory,
-    deliver_log_eval_table,
+    deliver_upload_eval_table,
     tmp_path,
 ):
     run = run_factory("run-one")
@@ -926,7 +926,7 @@ def test_eval_table_writes_supported_media_extensions_to_ces(
 
     run.log({"eval": table})
 
-    [request] = [call.args[0] for call in deliver_log_eval_table.call_args_list]
+    [request] = [call.args[0] for call in deliver_upload_eval_table.call_args_list]
     assert [
         {field.name: value for field, value in dataset_field.ListFields()}
         for dataset_field in request.dataset_fields

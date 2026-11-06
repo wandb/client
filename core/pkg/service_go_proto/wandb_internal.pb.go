@@ -5065,7 +5065,7 @@ type Request struct {
 	//	*Request_SyncFinish
 	//	*Request_Operations
 	//	*Request_ProbeSystemInfo
-	//	*Request_LogEvalTable
+	//	*Request_UploadEvalTable
 	//	*Request_TestInject
 	RequestType   isRequest_RequestType `protobuf_oneof:"request_type"`
 	unknownFields protoimpl.UnknownFields
@@ -5433,10 +5433,10 @@ func (x *Request) GetProbeSystemInfo() *ProbeSystemInfoRequest {
 	return nil
 }
 
-func (x *Request) GetLogEvalTable() *LogEvalTableRequest {
+func (x *Request) GetUploadEvalTable() *UploadEvalTableRequest {
 	if x != nil {
-		if x, ok := x.RequestType.(*Request_LogEvalTable); ok {
-			return x.LogEvalTable
+		if x, ok := x.RequestType.(*Request_UploadEvalTable); ok {
+			return x.UploadEvalTable
 		}
 	}
 	return nil
@@ -5601,8 +5601,8 @@ type Request_ProbeSystemInfo struct {
 	ProbeSystemInfo *ProbeSystemInfoRequest `protobuf:"bytes,83,opt,name=probe_system_info,json=probeSystemInfo,proto3,oneof"`
 }
 
-type Request_LogEvalTable struct {
-	LogEvalTable *LogEvalTableRequest `protobuf:"bytes,85,opt,name=log_eval_table,json=logEvalTable,proto3,oneof"`
+type Request_UploadEvalTable struct {
+	UploadEvalTable *UploadEvalTableRequest `protobuf:"bytes,85,opt,name=upload_eval_table,json=uploadEvalTable,proto3,oneof"`
 }
 
 type Request_TestInject struct {
@@ -5681,7 +5681,7 @@ func (*Request_Operations) isRequest_RequestType() {}
 
 func (*Request_ProbeSystemInfo) isRequest_RequestType() {}
 
-func (*Request_LogEvalTable) isRequest_RequestType() {}
+func (*Request_UploadEvalTable) isRequest_RequestType() {}
 
 func (*Request_TestInject) isRequest_RequestType() {}
 
@@ -5716,7 +5716,7 @@ type Response struct {
 	//	*Response_LinkArtifactResponse
 	//	*Response_SyncResponse
 	//	*Response_OperationsResponse
-	//	*Response_LogEvalTableResponse
+	//	*Response_UploadEvalTableResponse
 	//	*Response_TestInjectResponse
 	ResponseType  isResponse_ResponseType `protobuf_oneof:"response_type"`
 	unknownFields protoimpl.UnknownFields
@@ -5976,10 +5976,10 @@ func (x *Response) GetOperationsResponse() *OperationStatsResponse {
 	return nil
 }
 
-func (x *Response) GetLogEvalTableResponse() *LogEvalTableResponse {
+func (x *Response) GetUploadEvalTableResponse() *UploadEvalTableResponse {
 	if x != nil {
-		if x, ok := x.ResponseType.(*Response_LogEvalTableResponse); ok {
-			return x.LogEvalTableResponse
+		if x, ok := x.ResponseType.(*Response_UploadEvalTableResponse); ok {
+			return x.UploadEvalTableResponse
 		}
 	}
 	return nil
@@ -6094,8 +6094,8 @@ type Response_OperationsResponse struct {
 	OperationsResponse *OperationStatsResponse `protobuf:"bytes,74,opt,name=operations_response,json=operationsResponse,proto3,oneof"`
 }
 
-type Response_LogEvalTableResponse struct {
-	LogEvalTableResponse *LogEvalTableResponse `protobuf:"bytes,76,opt,name=log_eval_table_response,json=logEvalTableResponse,proto3,oneof"`
+type Response_UploadEvalTableResponse struct {
+	UploadEvalTableResponse *UploadEvalTableResponse `protobuf:"bytes,76,opt,name=upload_eval_table_response,json=uploadEvalTableResponse,proto3,oneof"`
 }
 
 type Response_TestInjectResponse struct {
@@ -6150,7 +6150,7 @@ func (*Response_SyncResponse) isResponse_ResponseType() {}
 
 func (*Response_OperationsResponse) isResponse_ResponseType() {}
 
-func (*Response_LogEvalTableResponse) isResponse_ResponseType() {}
+func (*Response_UploadEvalTableResponse) isResponse_ResponseType() {}
 
 func (*Response_TestInjectResponse) isResponse_ResponseType() {}
 
@@ -9747,7 +9747,7 @@ func (x *LogArtifactResponse) GetErrorMessage() string {
 //
 // wandb-core creates the table, declares its columns, appends its rows,
 // and cuts a version, then responds with the resulting CES IDs.
-type LogEvalTableRequest struct {
+type UploadEvalTableRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The EvalTable's name.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -9773,20 +9773,20 @@ type LogEvalTableRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *LogEvalTableRequest) Reset() {
-	*x = LogEvalTableRequest{}
+func (x *UploadEvalTableRequest) Reset() {
+	*x = UploadEvalTableRequest{}
 	mi := &file_wandb_proto_wandb_internal_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *LogEvalTableRequest) String() string {
+func (x *UploadEvalTableRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*LogEvalTableRequest) ProtoMessage() {}
+func (*UploadEvalTableRequest) ProtoMessage() {}
 
-func (x *LogEvalTableRequest) ProtoReflect() protoreflect.Message {
+func (x *UploadEvalTableRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_wandb_proto_wandb_internal_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -9798,47 +9798,47 @@ func (x *LogEvalTableRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use LogEvalTableRequest.ProtoReflect.Descriptor instead.
-func (*LogEvalTableRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UploadEvalTableRequest.ProtoReflect.Descriptor instead.
+func (*UploadEvalTableRequest) Descriptor() ([]byte, []int) {
 	return file_wandb_proto_wandb_internal_proto_rawDescGZIP(), []int{127}
 }
 
-func (x *LogEvalTableRequest) GetName() string {
+func (x *UploadEvalTableRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *LogEvalTableRequest) GetDatasetFields() []*EvalTableField {
+func (x *UploadEvalTableRequest) GetDatasetFields() []*EvalTableField {
 	if x != nil {
 		return x.DatasetFields
 	}
 	return nil
 }
 
-func (x *LogEvalTableRequest) GetScorers() []*EvalTableScorer {
+func (x *UploadEvalTableRequest) GetScorers() []*EvalTableScorer {
 	if x != nil {
 		return x.Scorers
 	}
 	return nil
 }
 
-func (x *LogEvalTableRequest) GetRowsJson() []string {
+func (x *UploadEvalTableRequest) GetRowsJson() []string {
 	if x != nil {
 		return x.RowsJson
 	}
 	return nil
 }
 
-func (x *LogEvalTableRequest) GetRowsFilePath() string {
+func (x *UploadEvalTableRequest) GetRowsFilePath() string {
 	if x != nil {
 		return x.RowsFilePath
 	}
 	return ""
 }
 
-func (x *LogEvalTableRequest) GetXInfo() *XRequestInfo {
+func (x *UploadEvalTableRequest) GetXInfo() *XRequestInfo {
 	if x != nil {
 		return x.XInfo
 	}
@@ -9980,7 +9980,7 @@ func (x *EvalTableScorer) GetValueType() string {
 	return ""
 }
 
-type LogEvalTableResponse struct {
+type UploadEvalTableResponse struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	EvaluationId        string                 `protobuf:"bytes,1,opt,name=evaluation_id,json=evaluationId,proto3" json:"evaluation_id,omitempty"`
 	EvaluationVersionId string                 `protobuf:"bytes,2,opt,name=evaluation_version_id,json=evaluationVersionId,proto3" json:"evaluation_version_id,omitempty"`
@@ -9992,20 +9992,20 @@ type LogEvalTableResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *LogEvalTableResponse) Reset() {
-	*x = LogEvalTableResponse{}
+func (x *UploadEvalTableResponse) Reset() {
+	*x = UploadEvalTableResponse{}
 	mi := &file_wandb_proto_wandb_internal_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *LogEvalTableResponse) String() string {
+func (x *UploadEvalTableResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*LogEvalTableResponse) ProtoMessage() {}
+func (*UploadEvalTableResponse) ProtoMessage() {}
 
-func (x *LogEvalTableResponse) ProtoReflect() protoreflect.Message {
+func (x *UploadEvalTableResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_wandb_proto_wandb_internal_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -10017,40 +10017,40 @@ func (x *LogEvalTableResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use LogEvalTableResponse.ProtoReflect.Descriptor instead.
-func (*LogEvalTableResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use UploadEvalTableResponse.ProtoReflect.Descriptor instead.
+func (*UploadEvalTableResponse) Descriptor() ([]byte, []int) {
 	return file_wandb_proto_wandb_internal_proto_rawDescGZIP(), []int{130}
 }
 
-func (x *LogEvalTableResponse) GetEvaluationId() string {
+func (x *UploadEvalTableResponse) GetEvaluationId() string {
 	if x != nil {
 		return x.EvaluationId
 	}
 	return ""
 }
 
-func (x *LogEvalTableResponse) GetEvaluationVersionId() string {
+func (x *UploadEvalTableResponse) GetEvaluationVersionId() string {
 	if x != nil {
 		return x.EvaluationVersionId
 	}
 	return ""
 }
 
-func (x *LogEvalTableResponse) GetDatasetId() string {
+func (x *UploadEvalTableResponse) GetDatasetId() string {
 	if x != nil {
 		return x.DatasetId
 	}
 	return ""
 }
 
-func (x *LogEvalTableResponse) GetDatasetVersionId() string {
+func (x *UploadEvalTableResponse) GetDatasetVersionId() string {
 	if x != nil {
 		return x.DatasetVersionId
 	}
 	return ""
 }
 
-func (x *LogEvalTableResponse) GetErrorMessage() string {
+func (x *UploadEvalTableResponse) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
 	}
@@ -12747,7 +12747,7 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12#\n" +
 	"\rwait_duration\x18\x04 \x01(\x03R\fwaitDuration\x121\n" +
 	"\x05_info\x18\xc8\x01 \x01(\v2\x1b.wandb_internal._RecordInfoR\x04Info\"\r\n" +
-	"\vAlertResult\"\xc3\x15\n" +
+	"\vAlertResult\"\xcc\x15\n" +
 	"\aRequest\x12D\n" +
 	"\vstop_status\x18\x01 \x01(\v2!.wandb_internal.StopStatusRequestH\x00R\n" +
 	"stopStatus\x12M\n" +
@@ -12794,11 +12794,11 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\n" +
 	"operations\x18R \x01(\v2%.wandb_internal.OperationStatsRequestH\x00R\n" +
 	"operations\x12T\n" +
-	"\x11probe_system_info\x18S \x01(\v2&.wandb_internal.ProbeSystemInfoRequestH\x00R\x0fprobeSystemInfo\x12K\n" +
-	"\x0elog_eval_table\x18U \x01(\v2#.wandb_internal.LogEvalTableRequestH\x00R\flogEvalTable\x12E\n" +
+	"\x11probe_system_info\x18S \x01(\v2&.wandb_internal.ProbeSystemInfoRequestH\x00R\x0fprobeSystemInfo\x12T\n" +
+	"\x11upload_eval_table\x18U \x01(\v2&.wandb_internal.UploadEvalTableRequestH\x00R\x0fuploadEvalTable\x12E\n" +
 	"\vtest_inject\x18\xe8\a \x01(\v2!.wandb_internal.TestInjectRequestH\x00R\n" +
 	"testInjectB\x0e\n" +
-	"\frequest_typeJ\x04\b\x12\x10\x13J\x04\b\x16\x10\x17J\x04\bK\x10LJ\x04\bL\x10MJ\x04\bO\x10PJ\x04\bP\x10Q\"\x99\x12\n" +
+	"\frequest_typeJ\x04\b\x12\x10\x13J\x04\b\x16\x10\x17J\x04\bK\x10LJ\x04\bL\x10MJ\x04\bO\x10PJ\x04\bP\x10Q\"\xa2\x12\n" +
 	"\bResponse\x12R\n" +
 	"\x12keepalive_response\x18\x12 \x01(\v2!.wandb_internal.KeepaliveResponseH\x00R\x11keepaliveResponse\x12V\n" +
 	"\x14stop_status_response\x18\x13 \x01(\v2\".wandb_internal.StopStatusResponseH\x00R\x12stopStatusResponse\x12_\n" +
@@ -12823,8 +12823,8 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x1bget_system_metrics_response\x18E \x01(\v2(.wandb_internal.GetSystemMetricsResponseH\x00R\x18getSystemMetricsResponse\x12\\\n" +
 	"\x16link_artifact_response\x18G \x01(\v2$.wandb_internal.LinkArtifactResponseH\x00R\x14linkArtifactResponse\x12C\n" +
 	"\rsync_response\x18F \x01(\v2\x1c.wandb_internal.SyncResponseH\x00R\fsyncResponse\x12Y\n" +
-	"\x13operations_response\x18J \x01(\v2&.wandb_internal.OperationStatsResponseH\x00R\x12operationsResponse\x12]\n" +
-	"\x17log_eval_table_response\x18L \x01(\v2$.wandb_internal.LogEvalTableResponseH\x00R\x14logEvalTableResponse\x12W\n" +
+	"\x13operations_response\x18J \x01(\v2&.wandb_internal.OperationStatsResponseH\x00R\x12operationsResponse\x12f\n" +
+	"\x1aupload_eval_table_response\x18L \x01(\v2'.wandb_internal.UploadEvalTableResponseH\x00R\x17uploadEvalTableResponse\x12W\n" +
 	"\x14test_inject_response\x18\xe8\a \x01(\v2\".wandb_internal.TestInjectResponseH\x00R\x12testInjectResponseB\x0f\n" +
 	"\rresponse_typeJ\x04\b \x10!J\x04\bH\x10IJ\x04\bI\x10J\"\xc7\x02\n" +
 	"\fDeferRequest\x12=\n" +
@@ -13072,8 +13072,8 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x13LogArtifactResponse\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xa2\x02\n" +
-	"\x13LogEvalTableRequest\x12\x12\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xa5\x02\n" +
+	"\x16UploadEvalTableRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12E\n" +
 	"\x0edataset_fields\x18\x02 \x03(\v2\x1e.wandb_internal.EvalTableFieldR\rdatasetFields\x129\n" +
 	"\ascorers\x18\x03 \x03(\v2\x1f.wandb_internal.EvalTableScorerR\ascorers\x12\x1b\n" +
@@ -13090,8 +13090,8 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x0fEvalTableScorer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"value_type\x18\x02 \x01(\tR\tvalueType\"\xe1\x01\n" +
-	"\x14LogEvalTableResponse\x12#\n" +
+	"value_type\x18\x02 \x01(\tR\tvalueType\"\xe4\x01\n" +
+	"\x17UploadEvalTableResponse\x12#\n" +
 	"\revaluation_id\x18\x01 \x01(\tR\fevaluationId\x122\n" +
 	"\x15evaluation_version_id\x18\x02 \x01(\tR\x13evaluationVersionId\x12\x1d\n" +
 	"\n" +
@@ -13498,10 +13498,10 @@ var file_wandb_proto_wandb_internal_proto_goTypes = []any{
 	(*JobInfoResponse)(nil),                     // 134: wandb_internal.JobInfoResponse
 	(*LogArtifactRequest)(nil),                  // 135: wandb_internal.LogArtifactRequest
 	(*LogArtifactResponse)(nil),                 // 136: wandb_internal.LogArtifactResponse
-	(*LogEvalTableRequest)(nil),                 // 137: wandb_internal.LogEvalTableRequest
+	(*UploadEvalTableRequest)(nil),              // 137: wandb_internal.UploadEvalTableRequest
 	(*EvalTableField)(nil),                      // 138: wandb_internal.EvalTableField
 	(*EvalTableScorer)(nil),                     // 139: wandb_internal.EvalTableScorer
-	(*LogEvalTableResponse)(nil),                // 140: wandb_internal.LogEvalTableResponse
+	(*UploadEvalTableResponse)(nil),             // 140: wandb_internal.UploadEvalTableResponse
 	(*DownloadArtifactRequest)(nil),             // 141: wandb_internal.DownloadArtifactRequest
 	(*DownloadArtifactResponse)(nil),            // 142: wandb_internal.DownloadArtifactResponse
 	(*KeepaliveRequest)(nil),                    // 143: wandb_internal.KeepaliveRequest
@@ -13674,7 +13674,7 @@ var file_wandb_proto_wandb_internal_proto_depIdxs = []int32{
 	98,  // 124: wandb_internal.Request.sync_finish:type_name -> wandb_internal.SyncFinishRequest
 	93,  // 125: wandb_internal.Request.operations:type_name -> wandb_internal.OperationStatsRequest
 	156, // 126: wandb_internal.Request.probe_system_info:type_name -> wandb_internal.ProbeSystemInfoRequest
-	137, // 127: wandb_internal.Request.log_eval_table:type_name -> wandb_internal.LogEvalTableRequest
+	137, // 127: wandb_internal.Request.upload_eval_table:type_name -> wandb_internal.UploadEvalTableRequest
 	117, // 128: wandb_internal.Request.test_inject:type_name -> wandb_internal.TestInjectRequest
 	144, // 129: wandb_internal.Response.keepalive_response:type_name -> wandb_internal.KeepaliveResponse
 	84,  // 130: wandb_internal.Response.stop_status_response:type_name -> wandb_internal.StopStatusResponse
@@ -13700,7 +13700,7 @@ var file_wandb_proto_wandb_internal_proto_depIdxs = []int32{
 	61,  // 150: wandb_internal.Response.link_artifact_response:type_name -> wandb_internal.LinkArtifactResponse
 	99,  // 151: wandb_internal.Response.sync_response:type_name -> wandb_internal.SyncResponse
 	94,  // 152: wandb_internal.Response.operations_response:type_name -> wandb_internal.OperationStatsResponse
-	140, // 153: wandb_internal.Response.log_eval_table_response:type_name -> wandb_internal.LogEvalTableResponse
+	140, // 153: wandb_internal.Response.upload_eval_table_response:type_name -> wandb_internal.UploadEvalTableResponse
 	118, // 154: wandb_internal.Response.test_inject_response:type_name -> wandb_internal.TestInjectResponse
 	8,   // 155: wandb_internal.DeferRequest.state:type_name -> wandb_internal.DeferRequest.DeferState
 	183, // 156: wandb_internal.PauseRequest._info:type_name -> wandb_internal._RequestInfo
@@ -13756,9 +13756,9 @@ var file_wandb_proto_wandb_internal_proto_depIdxs = []int32{
 	183, // 206: wandb_internal.JobInfoRequest._info:type_name -> wandb_internal._RequestInfo
 	53,  // 207: wandb_internal.LogArtifactRequest.artifact:type_name -> wandb_internal.ArtifactRecord
 	183, // 208: wandb_internal.LogArtifactRequest._info:type_name -> wandb_internal._RequestInfo
-	138, // 209: wandb_internal.LogEvalTableRequest.dataset_fields:type_name -> wandb_internal.EvalTableField
-	139, // 210: wandb_internal.LogEvalTableRequest.scorers:type_name -> wandb_internal.EvalTableScorer
-	183, // 211: wandb_internal.LogEvalTableRequest._info:type_name -> wandb_internal._RequestInfo
+	138, // 209: wandb_internal.UploadEvalTableRequest.dataset_fields:type_name -> wandb_internal.EvalTableField
+	139, // 210: wandb_internal.UploadEvalTableRequest.scorers:type_name -> wandb_internal.EvalTableScorer
+	183, // 211: wandb_internal.UploadEvalTableRequest._info:type_name -> wandb_internal._RequestInfo
 	183, // 212: wandb_internal.DownloadArtifactRequest._info:type_name -> wandb_internal._RequestInfo
 	183, // 213: wandb_internal.KeepaliveRequest._info:type_name -> wandb_internal._RequestInfo
 	146, // 214: wandb_internal.GitSource.git_info:type_name -> wandb_internal.GitInfo
@@ -13886,7 +13886,7 @@ func file_wandb_proto_wandb_internal_proto_init() {
 		(*Request_SyncFinish)(nil),
 		(*Request_Operations)(nil),
 		(*Request_ProbeSystemInfo)(nil),
-		(*Request_LogEvalTable)(nil),
+		(*Request_UploadEvalTable)(nil),
 		(*Request_TestInject)(nil),
 	}
 	file_wandb_proto_wandb_internal_proto_msgTypes[57].OneofWrappers = []any{
@@ -13914,7 +13914,7 @@ func file_wandb_proto_wandb_internal_proto_init() {
 		(*Response_LinkArtifactResponse)(nil),
 		(*Response_SyncResponse)(nil),
 		(*Response_OperationsResponse)(nil),
-		(*Response_LogEvalTableResponse)(nil),
+		(*Response_UploadEvalTableResponse)(nil),
 		(*Response_TestInjectResponse)(nil),
 	}
 	file_wandb_proto_wandb_internal_proto_msgTypes[151].OneofWrappers = []any{}

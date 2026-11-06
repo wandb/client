@@ -472,8 +472,8 @@ func (s *Sender) sendRequest(
 	case *spb.Request_DownloadArtifact:
 		s.sendRequestDownloadArtifact(x.DownloadArtifact, request)
 
-	case *spb.Request_LogEvalTable:
-		s.sendRequestLogEvalTable(x.LogEvalTable, request)
+	case *spb.Request_UploadEvalTable:
+		s.sendRequestUploadEvalTable(x.UploadEvalTable, request)
 
 	case *spb.Request_SenderRead:
 		// TODO: implement this
@@ -1382,21 +1382,21 @@ func (s *Sender) sendRequestLogArtifact(
 	}()
 }
 
-func (s *Sender) sendRequestLogEvalTable(
-	msg *spb.LogEvalTableRequest,
+func (s *Sender) sendRequestUploadEvalTable(
+	msg *spb.UploadEvalTableRequest,
 	request *runwork.Request,
 ) {
-	respond := func(response *spb.LogEvalTableResponse) {
+	respond := func(response *spb.UploadEvalTableResponse) {
 		s.respond(request,
 			&spb.Response{
-				ResponseType: &spb.Response_LogEvalTableResponse{
-					LogEvalTableResponse: response,
+				ResponseType: &spb.Response_UploadEvalTableResponse{
+					UploadEvalTableResponse: response,
 				},
 			})
 	}
 
 	if s.evalTableUploader == nil {
-		respond(&spb.LogEvalTableResponse{
+		respond(&spb.UploadEvalTableResponse{
 			ErrorMessage: "cannot log an EvalTable in offline mode",
 		})
 		return
@@ -1415,9 +1415,9 @@ func (s *Sender) sendRequestLogEvalTable(
 		if err != nil {
 			s.logger.CaptureError(
 				"stream",
-				fmt.Errorf("sender: failed to log EvalTable: %v", err),
+				fmt.Errorf("sender: failed to upload EvalTable: %v", err),
 			)
-			response = &spb.LogEvalTableResponse{ErrorMessage: err.Error()}
+			response = &spb.UploadEvalTableResponse{ErrorMessage: err.Error()}
 		}
 
 		respond(response)
