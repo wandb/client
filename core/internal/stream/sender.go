@@ -1402,6 +1402,18 @@ func (s *Sender) sendRequestUploadEvalTable(
 		return
 	}
 
+	if mediaPaths := msg.GetMediaPaths(); len(mediaPaths) > 0 {
+		files := &spb.FilesRecord{}
+		for _, path := range mediaPaths {
+			files.Files = append(files.Files, &spb.FilesItem{
+				Path:   path,
+				Policy: spb.FilesItem_NOW,
+				Type:   spb.FilesItem_MEDIA,
+			})
+		}
+		s.runfilesUploader.Process(files)
+	}
+
 	op := s.operations.New(fmt.Sprintf("uploading eval table %s", msg.GetName()))
 	ctx := op.Context(s.runWork.BeforeEndCtx())
 
