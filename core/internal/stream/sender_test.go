@@ -439,7 +439,7 @@ func TestSendLogEvalTable_RespondsWithErrorOnFailure(t *testing.T) {
 
 	response := output.GetResultCommunicate().GetResponse().GetLogEvalTableResponse()
 	require.NotNil(t, response)
-	assert.Contains(t, response.ErrorMessage, "evaltables:")
+	assert.Contains(t, response.ErrorMessage, "evaluations:")
 	assert.Empty(t, response.EvaluationVersionId)
 }
 

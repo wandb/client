@@ -1,4 +1,4 @@
-package evaltables
+package evaluations
 
 import (
 	"bytes"
@@ -71,7 +71,7 @@ func NewUploader(params UploaderParams) *Uploader {
 		evalTables: sync.OnceValues(func() (*ces.EvalTableService, error) {
 			cesBaseURL, err := CESBaseURL((*url.URL)(params.BaseURL))
 			if err != nil {
-				return nil, fmt.Errorf("evaltables: invalid CES URL: %v", err)
+				return nil, fmt.Errorf("evaluations: invalid CES URL: %v", err)
 			}
 
 			httpClient := NewCESHTTPClient(
@@ -100,7 +100,7 @@ func (u *Uploader) Upload(
 
 	upserter, err := u.runHandle.Upserter()
 	if err != nil {
-		return nil, fmt.Errorf("evaltables: %v", err)
+		return nil, fmt.Errorf("evaluations: %v", err)
 	}
 	runPath := upserter.RunPath()
 
@@ -117,7 +117,7 @@ func (u *Uploader) Upload(
 		keys.option("create"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaltables: failed to create EvalTable: %v", err)
+		return nil, fmt.Errorf("evaluations: failed to create EvalTable: %v", err)
 	}
 
 	_, err = evalTables.Columns.New(
@@ -131,7 +131,7 @@ func (u *Uploader) Upload(
 		keys.option("columns"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaltables: failed to add columns: %v", err)
+		return nil, fmt.Errorf("evaluations: failed to add columns: %v", err)
 	}
 
 	for i, body := range rowBatchBodies(request.GetRowsJson()) {
@@ -145,7 +145,7 @@ func (u *Uploader) Upload(
 			option.WithRequestBody("application/json", body),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("evaltables: failed to add rows: %v", err)
+			return nil, fmt.Errorf("evaluations: failed to add rows: %v", err)
 		}
 	}
 
@@ -156,7 +156,7 @@ func (u *Uploader) Upload(
 		keys.option("version"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("evaltables: failed to cut version: %v", err)
+		return nil, fmt.Errorf("evaluations: failed to cut version: %v", err)
 	}
 
 	return &spb.LogEvalTableResponse{
@@ -188,13 +188,13 @@ func (u *Uploader) projectScopeID(
 		runPath.Project,
 	)
 	if err != nil {
-		return "", fmt.Errorf("evaltables: failed to look up project: %v", err)
+		return "", fmt.Errorf("evaluations: failed to look up project: %v", err)
 	}
 
 	project := response.GetProject()
 	if project == nil || project.GetInternalId() == "" {
 		return "", fmt.Errorf(
-			"evaltables: project %s/%s not found",
+			"evaluations: project %s/%s not found",
 			runPath.Entity,
 			runPath.Project,
 		)
@@ -314,7 +314,7 @@ func newIdempotencyKeys(
 	})
 	if err != nil {
 		// Marshaling a slice of strings cannot fail.
-		panic(errors.Join(errors.New("evaltables: unexpected error"), err))
+		panic(errors.Join(errors.New("evaluations: unexpected error"), err))
 	}
 	digest := sha256.Sum256(location)
 
