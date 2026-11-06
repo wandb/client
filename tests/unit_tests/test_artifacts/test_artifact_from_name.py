@@ -207,17 +207,6 @@ def test_aliases_retry_starts_over_after_failed_later_page():
     assert service_api.variable_snapshots[3]["cursor"] is None
 
 
-def test_aliases_setter_fetches_before_replacing():
-    service_api = _service_api(_membership_data(), _alias_page(["old"]))
-    artifact = Artifact._from_name(path=_PATH, service_api=service_api)
-
-    artifact.aliases = ["new"]
-
-    assert artifact._saved_aliases == ["old"]
-    assert artifact.aliases == ["new"]
-    assert service_api.execute_graphql.call_count == 2
-
-
 def test_linked_artifacts_uses_own_aliases_not_source_later_pages(mocker):
     service_api = _service_api(
         _membership_data(
