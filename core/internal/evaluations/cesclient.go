@@ -16,59 +16,21 @@ import (
 )
 
 const (
-	// cesNamespace is the CES namespace of scopes that W&B assigns.
-	//
-	// W&B scopes are projects, identified by their internal ID.
-	cesNamespace = "wandb"
-
-	// cesBaseURLEnv overrides the CES URL derived from the W&B base URL.
+	cesNamespace  = "wandb"
 	cesBaseURLEnv = "CES_BASE_URL"
 
-	mtsaasWandbBaseURL = "https://api.wandb.ai"
-	mtsaasCESBaseURL   = "https://evaluations.wandb.ai"
+	// defaultCESBaseURL matches the SDK's option.WithEnvironmentProduction.
+	defaultCESBaseURL = "https://evaluations.wandb.ai/"
 )
 
-// forgeHosts maps each CoreWeave Forge host to the W&B API host behind it.
-//
-// It must match FORGE_HOSTS in wandb/sdk/lib/urls.py.
-var forgeHosts = map[string]string{
-	"forge.coreweave.com":    "api.wandb.ai",
-	"qa.forge.coreweave.com": "api.qa.wandb.ai",
-}
-
-// CESBaseURL returns the CES URL for the W&B server at wandbBaseURL.
-//
-// The CES_BASE_URL environment variable takes precedence. Multi-tenant SaaS
-// uses a separate host, including when reached through Forge, and other
-// deployments serve CES under the W&B server's /evaluations path.
-func CESBaseURL(wandbBaseURL *url.URL) (*url.URL, error) {
+// CESBaseURL returns CES_BASE_URL, or the SDK's default CES URL if it's unset.
+func CESBaseURL() (*url.URL, error) {
 	if override := os.Getenv(cesBaseURLEnv); override != "" {
 		return url.Parse(override)
 	}
-
-	if forgeUpstreamURL(wandbBaseURL) == mtsaasWandbBaseURL {
-		return url.Parse(mtsaasCESBaseURL)
-	}
-
-	return wandbBaseURL.JoinPath("evaluations"), nil
+	return url.Parse(defaultCESBaseURL)
 }
 
-// forgeUpstreamURL returns the W&B API URL behind a Forge URL, or the URL
-// unchanged.
-func forgeUpstreamURL(u *url.URL) string {
-	hostname := u.Hostname()
-	for forge, upstream := range forgeHosts {
-		if hostname == forge || hostname == "api."+forge || hostname == upstream {
-			return "https://" + upstream
-		}
-	}
-	return u.String()
-}
-
-// NewCESHTTPClient returns an HTTP client for requests to CES at cesBaseURL.
-//
-// It authenticates requests to CES with the run's W&B credentials and retries
-// them the way wandb-core retries requests to the W&B server.
 func NewCESHTTPClient(
 	cesBaseURL *url.URL,
 	credentialProvider api.CredentialProvider,

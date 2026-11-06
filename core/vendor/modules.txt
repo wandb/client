@@ -682,7 +682,7 @@ github.com/vektah/gqlparser/v2/validator
 github.com/vektah/gqlparser/v2/validator/core
 github.com/vektah/gqlparser/v2/validator/rules
 # github.com/wandb/cwevals-go v0.0.0 => ./third_party/cwevals-go
-## explicit; go 1.26.10
+## explicit; go 1.26
 github.com/wandb/cwevals-go
 github.com/wandb/cwevals-go/internal
 github.com/wandb/cwevals-go/internal/apierror
