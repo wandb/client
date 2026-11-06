@@ -193,31 +193,40 @@ func serviceMain() int {
 	srvCh := make(chan error, 1)
 	go func() { srvCh <- srv.Serve(*portFilename) }()
 
-	for {
-		select {
-		case err := <-srvCh:
-			switch {
-			case err != nil:
-				slog.Error("main: Serve() returned error", "error", err)
-				return exitCodeErrorInternal
-			default:
-				return exitCodeSuccess
-			}
-		case sig := <-signalCh:
-			slog.Info("main: received shutdown signal", "signal", sig)
-			srv.Shutdown("signal: " + sig.String())
-			var err error
-			select {
-			case err = <-srvCh:
-			case <-signalCh:
-				srv.ForceStop()
-				err = <-srvCh
-			}
-			if err != nil {
-				slog.Error("main: Serve() returned error", "error", err)
-			}
-			return exitCodeSignal
+	return waitForServer(srv, srvCh, signalCh)
+}
+
+// waitForServer returns the process exit code once the server stops.
+//
+// The first signal starts a graceful shutdown and a second one forces it.
+func waitForServer(
+	srv *server.Server,
+	srvCh <-chan error,
+	signalCh <-chan os.Signal,
+) int {
+	select {
+	case err := <-srvCh:
+		if err != nil {
+			slog.Error("main: Serve() returned error", "error", err)
+			return exitCodeErrorInternal
 		}
+		return exitCodeSuccess
+
+	case sig := <-signalCh:
+		slog.Info("main: received shutdown signal", "signal", sig)
+		srv.Shutdown("signal: " + sig.String())
+
+		var err error
+		select {
+		case err = <-srvCh:
+		case <-signalCh:
+			srv.ForceStop()
+			err = <-srvCh
+		}
+		if err != nil {
+			slog.Error("main: Serve() returned error", "error", err)
+		}
+		return exitCodeSignal
 	}
 }
 
