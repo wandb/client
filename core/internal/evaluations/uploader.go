@@ -44,8 +44,7 @@ type Uploader struct {
 	graphqlClient graphql.Client
 	runHandle     *runhandle.RunHandle
 
-	// evalTables returns the CES client, creating it on first use.
-	evalTables func() (*ces.EvalTableService, error)
+	evalTables *ces.EvalTableService
 
 	// scopeMu guards scopeID.
 	scopeMu sync.Mutex
@@ -66,20 +65,11 @@ func NewUploader(params UploaderParams) *Uploader {
 	return &Uploader{
 		graphqlClient: params.GraphqlClient,
 		runHandle:     params.RunHandle,
-		evalTables: sync.OnceValues(func() (*ces.EvalTableService, error) {
-			cesBaseURL, err := CESBaseURL()
-			if err != nil {
-				return nil, fmt.Errorf("evaluations: invalid CES URL: %v", err)
-			}
-
-			httpClient := NewCESHTTPClient(
-				cesBaseURL,
-				params.CredentialProvider,
-				params.Logger.Logger,
-				params.Settings,
-			)
-			return NewEvalTableService(cesBaseURL, httpClient), nil
-		}),
+		evalTables: NewEvalTableService(NewCESHTTPClient(
+			params.CredentialProvider,
+			params.Logger.Logger,
+			params.Settings,
+		)),
 	}
 }
 
@@ -91,10 +81,7 @@ func (u *Uploader) Upload(
 	ctx context.Context,
 	request *spb.LogEvalTableRequest,
 ) (*spb.LogEvalTableResponse, error) {
-	evalTables, err := u.evalTables()
-	if err != nil {
-		return nil, err
-	}
+	evalTables := u.evalTables
 
 	upserter, err := u.runHandle.Upserter()
 	if err != nil {
