@@ -138,7 +138,7 @@ func (u *Uploader) Upload(
 			ces.EvalTableRowAddParams{ScopeID: scope},
 			keys.option(fmt.Sprintf("rows-%d", batchIndex)),
 			// The rows are already JSON, so send them without decoding them
-			// into the SDK's types.
+			// into the CES SDK's types.
 			option.WithRequestBody("application/json", body),
 		); err != nil {
 			return nil, fmt.Errorf("evaltables: failed to add rows: %v", err)
