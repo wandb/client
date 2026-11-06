@@ -345,8 +345,10 @@ def test_ces_eval_table_rejects_total_row_count_before_network(
 
 
 def test_ces_eval_table_raises_upload_error(deliver_upload_eval_table, run):
-    deliver_upload_eval_table.return_value.wait_or.return_value = _upload_eval_table_result(
-        pb.UploadEvalTableResponse(error_message="upload failed")
+    deliver_upload_eval_table.return_value.wait_or.return_value = (
+        _upload_eval_table_result(
+            pb.UploadEvalTableResponse(error_message="upload failed")
+        )
     )
     et = wandb.EvalTable(
         columns=["value"],

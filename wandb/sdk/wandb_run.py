@@ -104,9 +104,9 @@ if TYPE_CHECKING:
     from wandb.apis.public import Api as PublicApi
     from wandb.proto.wandb_internal_pb2 import (
         GetSummaryResponse,
+        SampledHistoryResponse,
         UploadEvalTableRequest,
         UploadEvalTableResponse,
-        SampledHistoryResponse,
     )
 
     from .artifacts.artifact import Artifact
@@ -1393,7 +1393,9 @@ class Run:
         files: FilesDict = dict(files=[(GlobStr(fname), "now")])
         self._interface.publish_files(files)
 
-    def _upload_eval_table(self, request: UploadEvalTableRequest) -> UploadEvalTableResponse:
+    def _upload_eval_table(
+        self, request: UploadEvalTableRequest
+    ) -> UploadEvalTableResponse:
         """Upload an EvalTable to CES and wait for the result.
 
         This is a W&B-internal function: it can be used by other internal
