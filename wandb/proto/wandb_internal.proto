@@ -1302,17 +1302,9 @@ message LogEvalTableRequest {
   // The EvalTable's name.
   string name = 1;
 
-  // The history key and step at which the table is logged.
-  //
-  // They identify the logging location in CES idempotency keys, so that
-  // retrying a log at the same location reuses the same CES resources.
-  // CES does not store them.
-  string history_key = 2;
-  string step = 3;
-
   // Dataset fields and scorers in the order CES should declare them.
-  repeated EvalTableField dataset_fields = 4;
-  repeated EvalTableScorer scorers = 5;
+  repeated EvalTableField dataset_fields = 2;
+  repeated EvalTableScorer scorers = 3;
 
   // The table's rows in order, each a JSON object of the form
   // {"input": {...}, "output": {...} | null, "scores": {...}}.
@@ -1321,14 +1313,14 @@ message LogEvalTableRequest {
   // values, and every value matches its column's declared type.
   //
   // Only one of {rows_json, rows_file_path} should be set.
-  repeated string rows_json = 6;
+  repeated string rows_json = 4;
 
   // A gzipped file of the table's rows, one JSON object per line in the
   // same form as rows_json.
   //
   // It is used for tables too large to send inline. wandb-core deletes the
   // file after reading it, whether or not the upload succeeds.
-  string rows_file_path = 7;
+  string rows_file_path = 5;
 
   _RequestInfo _info = 200;
 }
