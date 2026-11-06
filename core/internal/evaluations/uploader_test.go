@@ -267,6 +267,16 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 	assert.Equal(t, []int{7, 3}, batchSizes)
 }
 
+func TestUpload_InvalidCESURL(t *testing.T) {
+	uploader, _ := newTestUploaderWithSettings(t, projectFoundJSON,
+		settings.From(&spb.Settings{XCesBaseUrl: wrapperspb.String("://bad")}))
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t"})
+
+	assert.ErrorContains(t, err, "invalid CES URL")
+}
+
 func TestUpload_NoCESURL(t *testing.T) {
 	uploader, _ := newTestUploaderWithSettings(t, projectFoundJSON, settings.New())
 
