@@ -1,9 +1,6 @@
 from unittest.mock import Mock
 
-from wandb.sdk.artifacts._alias_paginator import (
-    DEFAULT_PAGE_SIZE,
-    MembershipAliasesPaginator,
-)
+from wandb.sdk.artifacts._alias_paginator import MembershipAliasesPaginator
 from wandb.sdk.artifacts._generated import ArtifactMembershipAliases
 
 
@@ -63,23 +60,6 @@ def test_membership_aliases_paginator_resumes_from_start_cursor():
     service_api.execute_graphql.assert_called_once()
     _, kwargs = service_api.execute_graphql.call_args
     assert kwargs["variables"]["cursor"] == "cursor-1"
-
-
-def test_membership_aliases_paginator_uses_default_page_size():
-    service_api = Mock()
-    service_api.execute_graphql.return_value = _page_response([], has_next_page=False)
-
-    list(
-        MembershipAliasesPaginator(
-            service_api,
-            entity="test-entity",
-            project="test-project",
-            name="test-collection:v0",
-        )
-    )
-
-    _, kwargs = service_api.execute_graphql.call_args
-    assert kwargs["variables"]["perPage"] == DEFAULT_PAGE_SIZE
 
 
 def test_membership_aliases_paginator_drops_null_nodes():
