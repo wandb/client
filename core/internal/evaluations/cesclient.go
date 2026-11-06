@@ -1,6 +1,5 @@
-// Package evaltables uploads EvalTables to the CoreWeave Evaluations Service
-// (CES).
-package evaltables
+// Package evaluations is a client for the CoreWeave Evaluations Service (CES).
+package evaluations
 
 import (
 	"log/slog"
