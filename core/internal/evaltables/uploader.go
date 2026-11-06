@@ -41,7 +41,7 @@ type Uploader struct {
 	// scopeMu guards scopeID.
 	scopeMu sync.Mutex
 
-	// scopeID is the run's project's internal ID, or empty if not yet known.
+	// scopeID is the run's project's internal ID, or empty if not yet fetched.
 	scopeID string
 }
 
@@ -68,8 +68,6 @@ func NewUploader(params UploaderParams) *Uploader {
 
 // Upload creates an EvalTable in CES, adds its columns and rows,
 // and cuts a version.
-//
-// It must be called after the run is initialized.
 func (u *Uploader) Upload(
 	ctx context.Context,
 	request *spb.UploadEvalTableRequest,
