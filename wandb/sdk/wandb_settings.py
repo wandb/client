@@ -620,7 +620,7 @@ class Settings(BaseModel, validate_assignment=True):
     The `_ces_base_url` is normally computed based on `base_url`, but this
     can be used to set it explicitly.
 
-    CES_BASE_URL is the corresponding environment variable.
+    WANDB_CES_BASE_URL is the corresponding environment variable.
 
     <!-- lazydoc-ignore -->
     """
@@ -2012,10 +2012,11 @@ class Settings(BaseModel, validate_assignment=True):
         }
 
         for setting, value in environ.items():
+            if not setting.startswith(env_prefix):
+                continue
+
             if setting in special_env_var_names:
                 key = special_env_var_names[setting]
-            elif not setting.startswith(env_prefix):
-                continue
             elif setting.startswith(private_env_prefix):
                 key = "x_" + setting[len(private_env_prefix) :].lower()
             else:
