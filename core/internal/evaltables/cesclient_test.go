@@ -1,4 +1,4 @@
-package evaluations_test
+package evaltables_test
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/apitest"
-	"github.com/wandb/wandb/core/internal/evaluations"
+	"github.com/wandb/wandb/core/internal/evaltables"
 	"github.com/wandb/wandb/core/internal/observabilitytest"
 	"github.com/wandb/wandb/core/internal/settings"
 )
@@ -26,9 +26,9 @@ func TestEvalTableService_UsesGivenURLAndRunCredentials(t *testing.T) {
 	t.Setenv("WANDB_ACCESS_TOKEN", "env-access-token")
 	t.Setenv("CES_CUSTOM_HEADERS", "X-From-Env: yes")
 	cesURL := mustParseURL(t, server.URL+"/evaluations")
-	service := evaluations.NewEvalTableService(
+	service := evaltables.NewEvalTableService(
 		cesURL,
-		evaluations.NewCESHTTPClient(
+		evaltables.NewCESHTTPClient(
 			cesURL,
 			api.NewAPIKeyCredentialProvider("run-api-key"),
 			observabilitytest.NewTestLogger(t).Logger,
@@ -60,7 +60,7 @@ func TestCESHTTPClient_SendsCredentialsOnlyToCESURL(t *testing.T) {
 	defer cesServer.Close()
 	otherServer := apitest.NewRecordingServer()
 	defer otherServer.Close()
-	client := evaluations.NewCESHTTPClient(
+	client := evaltables.NewCESHTTPClient(
 		mustParseURL(t, cesServer.URL+"/evaluations"),
 		api.NewAPIKeyCredentialProvider("run-api-key"),
 		observabilitytest.NewTestLogger(t).Logger,
