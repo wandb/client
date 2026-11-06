@@ -1,5 +1,5 @@
-// Package evaluations is a client for the CoreWeave Evaluation Service (CES).
-package evaluations
+// Package evaltables is a client for EvalTables in the CoreWeave Evaluation Service (CES).
+package evaltables
 
 import (
 	"log/slog"

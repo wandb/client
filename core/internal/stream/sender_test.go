@@ -439,7 +439,7 @@ func TestSendUploadEvalTable_RespondsWithErrorOnFailure(t *testing.T) {
 
 	response := output.GetResultCommunicate().GetResponse().GetUploadEvalTableResponse()
 	require.NotNil(t, response)
-	assert.Contains(t, response.ErrorMessage, "evaluations:")
+	assert.Contains(t, response.ErrorMessage, "evaltables:")
 	assert.Empty(t, response.EvaluationVersionId)
 }
 
