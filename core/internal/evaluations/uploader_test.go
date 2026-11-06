@@ -129,9 +129,7 @@ func TestUpload(t *testing.T) {
 	uploader, mockGQL := newTestUploader(t, ces, projectFoundJSON)
 
 	response, err := uploader.Upload(context.Background(), &spb.LogEvalTableRequest{
-		Name:       "my-table",
-		HistoryKey: "eval",
-		Step:       "3",
+		Name: "my-table",
 		DatasetFields: []*spb.EvalTableField{
 			{Source: "input", Name: "prompt", ValueType: "string"},
 			{
@@ -190,10 +188,8 @@ func TestUpload_IdempotencyKeys(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
 	request := &spb.LogEvalTableRequest{
-		Name:       "my-table",
-		HistoryKey: "eval",
-		Step:       "3",
-		RowsJson:   []string{`{}`},
+		Name:     "my-table",
+		RowsJson: []string{`{}`},
 	}
 
 	_, err := uploader.Upload(context.Background(), request)
@@ -207,35 +203,23 @@ func TestUpload_IdempotencyKeys(t *testing.T) {
 	for i, req := range requests {
 		keys[i] = req.IdempotencyKey
 	}
-	prefix, found := strings.CutSuffix(keys[0], "-create")
-	require.True(t, found, keys[0])
-	assert.Regexp(t, `^wandb-eval-table-v2-[0-9a-f]{64}$`, prefix)
-	assert.Equal(t,
-		[]string{
-			prefix + "-create",
-			prefix + "-columns",
-			prefix + "-rows-0",
-			prefix + "-version",
-		},
-		keys[:4])
-	// Retrying at the same location reuses the same keys.
-	assert.Equal(t, keys[:4], keys[4:])
-}
-
-func TestUpload_DifferentStepsUseDifferentKeys(t *testing.T) {
-	ces := newFakeCES(t)
-	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
-
-	_, err := uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t", HistoryKey: "eval", Step: "1"})
-	require.NoError(t, err)
-	_, err = uploader.Upload(context.Background(),
-		&spb.LogEvalTableRequest{Name: "t", HistoryKey: "eval", Step: "2"})
-	require.NoError(t, err)
-
-	requests := ces.Requests()
-	require.Len(t, requests, 6) // No rows requests for empty tables.
-	assert.NotEqual(t, requests[0].IdempotencyKey, requests[3].IdempotencyKey)
+	uuidPattern := `[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`
+	for _, upload := range [][]string{keys[:4], keys[4:]} {
+		prefix, found := strings.CutSuffix(upload[0], "-create")
+		require.True(t, found, upload[0])
+		assert.Regexp(t, `^wandb-eval-table-v3-`+uuidPattern+`$`, prefix)
+		assert.Equal(t,
+			[]string{
+				prefix + "-create",
+				prefix + "-columns",
+				prefix + "-rows-0",
+				prefix + "-version",
+			},
+			upload)
+	}
+	// Uploading the same table again, such as from another writer in
+	// shared mode, must not collide with the first upload's keys.
+	assert.NotEqual(t, keys[0], keys[4])
 }
 
 func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
