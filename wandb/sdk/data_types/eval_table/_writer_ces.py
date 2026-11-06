@@ -44,23 +44,6 @@ PrimitiveValueType = Literal["boolean", "integer", "number", "string"]
 _CESFieldSource = Literal["input", "output"]
 
 
-class _CESDatasetField(TypedDict):
-    """A CES dataset field declaration, named like `pb.EvalTableField`."""
-
-    source: _CESFieldSource
-    name: str
-    value_type: PrimitiveValueType | Literal["json"]
-    extension_type: NotRequired[_media_ces.CESExtensionType]
-    extension_schema_version: NotRequired[int]
-
-
-class _CESScorer(TypedDict):
-    """A CES scorer declaration, named like `pb.EvalTableScorer`."""
-
-    name: str
-    value_type: PrimitiveValueType
-
-
 class _CESRow(TypedDict):
     input: dict[str, Any] | None
     output: dict[str, Any] | None
@@ -76,17 +59,17 @@ class _CESFieldType:
     extension_type: _media_ces.CESExtensionType | None = None
     extension_schema_version: int | None = None
 
-    def declaration(self, source: _CESFieldSource, name: str) -> _CESDatasetField:
-        """Build the CES client field declaration for this observed column type."""
-        result: _CESDatasetField = {
-            "source": source,
-            "name": name,
-            "value_type": self.value_type,
-        }
+    def declaration(self, source: _CESFieldSource, name: str) -> pb.EvalTableField:
+        """Build the CES field declaration for this observed column type."""
+        result = pb.EvalTableField(
+            source=source,
+            name=name,
+            value_type=self.value_type,
+        )
         if self.extension_type is not None:
-            result["extension_type"] = self.extension_type
+            result.extension_type = self.extension_type
         if self.extension_schema_version is not None:
-            result["extension_schema_version"] = self.extension_schema_version
+            result.extension_schema_version = self.extension_schema_version
         return result
 
 
@@ -98,8 +81,8 @@ class _BoundRun:
 
 @dataclass(frozen=True)
 class _CESWritePayloads:
-    dataset_fields: list[_CESDatasetField]
-    scorers: list[_CESScorer]
+    dataset_fields: list[pb.EvalTableField]
+    scorers: list[pb.EvalTableScorer]
     rows_json: list[str]
     media_cells_examined: int
     oversized_media_cells: int
@@ -221,13 +204,8 @@ class CESWriter:
             bound_run.run,
             pb.UploadEvalTableRequest(
                 name=name,
-                dataset_fields=[
-                    pb.EvalTableField(**dataset_field)
-                    for dataset_field in write_payloads.dataset_fields
-                ],
-                scorers=[
-                    pb.EvalTableScorer(**scorer) for scorer in write_payloads.scorers
-                ],
+                dataset_fields=write_payloads.dataset_fields,
+                scorers=write_payloads.scorers,
                 rows_json=write_payloads.rows_json,
             ),
         )
@@ -361,12 +339,12 @@ class CESWriter:
                 f"CES EvalTable logging supports at most {_MAX_SCORERS} score columns."
             )
 
-        dataset_fields: list[_CESDatasetField] = [
+        dataset_fields = [
             dataset_field_types[(source, column_name)].declaration(source, column_name)
             for source, column_name in dataset_field_order
         ]
-        scorers: list[_CESScorer] = [
-            {"name": column_name, "value_type": scorer_types[column_name]}
+        scorers = [
+            pb.EvalTableScorer(name=column_name, value_type=scorer_types[column_name])
             for column_name in scorer_order
         ]
         # Encode rows first so row size errors precede config updates and requests.
