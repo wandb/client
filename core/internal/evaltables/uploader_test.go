@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/wandb/wandb/core/internal/api"
@@ -209,18 +210,7 @@ func TestUpload_PassesThroughAllValueTypes(t *testing.T) {
 		`"prompt":"draw a cat",` +
 		`"config":{"seed":7,"tags":["a","b"]}` +
 		`},` +
-		`"output":{"image":{` +
-		`"extension_type":"wandb-image",` +
-		`"schema_version":1,` +
-		`"wb_media_type":"image-file",` +
-		`"format":"png",` +
-		`"sha256":"210b9798eb53baa4e69d31c1071cf03d212b8ad0ca30cf321e0ea82e120aac26",` +
-		`"size":1024,` +
-		`"uri":"wandb-run-file://entity/project/run-id/media/images/cat.png",` +
-		`"width":32,` +
-		`"height":32,` +
-		`"caption":"a cat"` +
-		`}},` +
+		`"output":{"answer":"a cat"},` +
 		`"scores":{"passed":false,"votes":3,"accuracy":0.5,"grade":"B"}` +
 		`}`
 
@@ -232,13 +222,7 @@ func TestUpload_PassesThroughAllValueTypes(t *testing.T) {
 			{Source: "input", Name: "temperature", ValueType: "number"},
 			{Source: "input", Name: "prompt", ValueType: "string"},
 			{Source: "input", Name: "config", ValueType: "json"},
-			{
-				Source:                 "output",
-				Name:                   "image",
-				ValueType:              "json",
-				ExtensionType:          "wandb-image",
-				ExtensionSchemaVersion: 1,
-			},
+			{Source: "output", Name: "answer", ValueType: "string"},
 		},
 		Scorers: []*spb.EvalTableScorer{
 			{Name: "passed", ValueType: "boolean"},
@@ -259,13 +243,7 @@ func TestUpload_PassesThroughAllValueTypes(t *testing.T) {
 			{"source": "input", "name": "temperature", "value_type": "number"},
 			{"source": "input", "name": "prompt", "value_type": "string"},
 			{"source": "input", "name": "config", "value_type": "json"},
-			{
-				"source": "output",
-				"name": "image",
-				"value_type": "json",
-				"extension_type": "wandb-image",
-				"extension_schema_version": 1
-			}
+			{"source": "output", "name": "answer", "value_type": "string"}
 		],
 		"scorers": [
 			{"name": "passed", "value_type": "boolean"},
@@ -496,19 +474,6 @@ func TestUpload_RejectsUnknownColumnTypes(t *testing.T) {
 			wantErr: `field "a" has unknown value type "float"`,
 		},
 		{
-			name: "extension type",
-			request: &spb.UploadEvalTableRequest{
-				DatasetFields: []*spb.EvalTableField{{
-					Source:                 "output",
-					Name:                   "a",
-					ValueType:              "json",
-					ExtensionType:          "wandb-table",
-					ExtensionSchemaVersion: 1,
-				}},
-			},
-			wantErr: `field "a" has unknown extension type "wandb-table"`,
-		},
-		{
 			name: "scorer value type",
 			request: &spb.UploadEvalTableRequest{
 				Scorers: []*spb.EvalTableScorer{{Name: "a", ValueType: "json"}},
@@ -544,4 +509,375 @@ func TestUpload_RejectsOversizedColumns(t *testing.T) {
 
 	assert.ErrorContains(t, err, "columns request is")
 	assert.Empty(t, ces.Requests())
+}
+
+func TestUpload_ConvertsMedia(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// W&B media JSON, as from Python's Media.to_json.
+	row := `{` +
+		`"input":{"prompt":"draw <a> cat & dog","count":9007199254740993,"temperature":1.0},` +
+		`"output":{` +
+		`"answer":"<b>a cat</b> & a dog",` +
+		`"tokens":9007199254740993,` +
+		`"ratio":1.0,` +
+		`"image":{` +
+		`"_type":"image-file",` +
+		`"path":"media/eval_tables/images/eval/cat.png",` +
+		`"sha256":"aaa",` +
+		`"size":1024,` +
+		`"format":"png",` +
+		`"width":32,` +
+		`"height":24,` +
+		`"caption":"a cat",` +
+		`"grouping":1,` +
+		`"boxes":{"predictions":{` +
+		`"_type":"boxes2D",` +
+		`"path":"media/eval_tables/boxes/eval/cat.boxes2D.json",` +
+		`"sha256":"bbb",` +
+		`"size":10` +
+		`}},` +
+		`"masks":{"truth":{` +
+		`"_type":"mask",` +
+		`"artifact_path":"wandb-artifact://_id/abc/mask.png",` +
+		`"sha256":"ccc",` +
+		`"size":20` +
+		`}}` +
+		`},` +
+		`"audio":{` +
+		`"_type":"audio-file",` +
+		`"artifact_path":"wandb-artifact://_id/def/meow.wav",` +
+		`"_latest_artifact_path":"wandb-artifact://entity/project/sounds:latest/meow.wav",` +
+		`"sha256":"ddd",` +
+		`"size":2048,` +
+		`"caption":"meow"` +
+		`},` +
+		`"video":{` +
+		`"_type":"video-file",` +
+		`"path":"media/eval tables/videos/cat#1.mp4",` +
+		`"sha256":"eee",` +
+		`"size":4096,` +
+		`"width":64,` +
+		`"height":48` +
+		`}` +
+		`},` +
+		`"scores":{}` +
+		`}`
+
+	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+		Name: "my-table",
+		DatasetFields: []*spb.EvalTableField{
+			{Source: "input", Name: "prompt", ValueType: "string"},
+			{Source: "input", Name: "count", ValueType: "integer"},
+			{Source: "input", Name: "temperature", ValueType: "number"},
+			{Source: "output", Name: "answer", ValueType: "string"},
+			{Source: "output", Name: "tokens", ValueType: "integer"},
+			{Source: "output", Name: "ratio", ValueType: "number"},
+			{Source: "output", Name: "image", ValueType: "json", WandbMediaType: "image-file"},
+			{Source: "output", Name: "audio", ValueType: "json", WandbMediaType: "audio-file"},
+			{Source: "output", Name: "video", ValueType: "json", WandbMediaType: "video-file"},
+		},
+		RowsJson: []string{row},
+	})
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+	assert.JSONEq(t, `{
+		"dataset_fields": [
+			{"source": "input", "name": "prompt", "value_type": "string"},
+			{"source": "input", "name": "count", "value_type": "integer"},
+			{"source": "input", "name": "temperature", "value_type": "number"},
+			{"source": "output", "name": "answer", "value_type": "string"},
+			{"source": "output", "name": "tokens", "value_type": "integer"},
+			{"source": "output", "name": "ratio", "value_type": "number"},
+			{
+				"source": "output",
+				"name": "image",
+				"value_type": "json",
+				"extension_type": "wandb-image",
+				"extension_schema_version": 1
+			},
+			{
+				"source": "output",
+				"name": "audio",
+				"value_type": "json",
+				"extension_type": "wandb-audio",
+				"extension_schema_version": 1
+			},
+			{
+				"source": "output",
+				"name": "video",
+				"value_type": "json",
+				"extension_type": "wandb-video",
+				"extension_schema_version": 1
+			}
+		],
+		"scorers": []
+	}`, requests[1].Body)
+	assert.JSONEq(t, `{"rows": [{
+		"input": {
+			"prompt": "draw <a> cat & dog",
+			"count": 9007199254740993,
+			"temperature": 1.0
+		},
+		"output": {
+			"answer": "<b>a cat</b> & a dog",
+			"tokens": 9007199254740993,
+			"ratio": 1.0,
+			"image": {
+				"extension_type": "wandb-image",
+				"schema_version": 1,
+				"wb_media_type": "image-file",
+				"format": "png",
+				"sha256": "aaa",
+				"size": 1024,
+				"uri": "wandb-run-file://test-entity/test-project/test-run/media/eval_tables/images/eval/cat.png",
+				"width": 32,
+				"height": 24,
+				"caption": "a cat",
+				"boxes": {"predictions": {
+					"_type": "boxes2D",
+					"sha256": "bbb",
+					"size": 10,
+					"uri": "wandb-run-file://test-entity/test-project/test-run/media/eval_tables/boxes/eval/cat.boxes2D.json"
+				}},
+				"masks": {"truth": {
+					"_type": "mask",
+					"sha256": "ccc",
+					"size": 20,
+					"uri": "wandb-artifact://_id/abc/mask.png"
+				}}
+			},
+			"audio": {
+				"extension_type": "wandb-audio",
+				"schema_version": 1,
+				"wb_media_type": "audio-file",
+				"sha256": "ddd",
+				"size": 2048,
+				"uri": "wandb-artifact://_id/def/meow.wav",
+				"caption": "meow"
+			},
+			"video": {
+				"extension_type": "wandb-video",
+				"schema_version": 1,
+				"wb_media_type": "video-file",
+				"sha256": "eee",
+				"size": 4096,
+				"uri": "wandb-run-file://test-entity/test-project/test-run/media/eval%20tables/videos/cat%231.mp4",
+				"width": 64,
+				"height": 48
+			}
+		},
+		"scores": {}
+	}]}`, requests[2].Body)
+	// JSONEq compares numbers as float64, so check that other values keep
+	// their exact JSON: unchanged without media, and re-encoded otherwise.
+	assert.Contains(t, requests[2].Body,
+		`"input":{"prompt":"draw <a> cat & dog","count":9007199254740993,"temperature":1.0}`)
+	assert.Contains(t, requests[2].Body, `"answer":"<b>a cat</b> & a dog"`)
+	assert.Contains(t, requests[2].Body, `"ratio":1.0`)
+	assert.Contains(t, requests[2].Body, `"tokens":9007199254740993`)
+}
+
+// TestUpload_ConvertsPythonMedia converts a request recorded from the Python
+// SDK, so that it covers the W&B media JSON that Python actually sends.
+//
+// Python's test_eval_table_media_request_matches_core_fixture checks that the
+// fixture is up to date.
+func TestUpload_ConvertsPythonMedia(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	fixture, err := os.ReadFile("testdata/upload_media_request.json")
+	require.NoError(t, err)
+	var recorded struct {
+		DatasetFields json.RawMessage   `json:"dataset_fields"`
+		Rows          []json.RawMessage `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(fixture, &recorded))
+	request := &spb.UploadEvalTableRequest{Name: "my-table"}
+	require.NoError(t, protojson.Unmarshal(
+		[]byte(`{"dataset_fields":`+string(recorded.DatasetFields)+`}`),
+		request,
+	))
+	for _, row := range recorded.Rows {
+		request.RowsJson = append(request.RowsJson, string(row))
+	}
+
+	_, err = uploader.Upload(context.Background(), request)
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+
+	var sent, converted struct {
+		Rows []struct {
+			Input map[string]map[string]any `json:"input"`
+		} `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(fixture, &sent))
+	require.NoError(t, json.Unmarshal([]byte(requests[2].Body), &converted))
+	require.Len(t, converted.Rows, 1)
+
+	// uri returns the CES URI expected for W&B media JSON.
+	uri := func(media map[string]any) string {
+		if artifactPath, ok := media["artifact_path"]; ok {
+			return artifactPath.(string)
+		}
+		return "wandb-run-file://test-entity/test-project/test-run/" +
+			media["path"].(string)
+	}
+	// file returns the CES value expected for a W&B media file's JSON.
+	file := func(media map[string]any) map[string]any {
+		return map[string]any{
+			"_type":  media["_type"],
+			"sha256": media["sha256"],
+			"size":   media["size"],
+			"uri":    uri(media),
+		}
+	}
+
+	input := sent.Rows[0].Input
+	image := input["image"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-image",
+		"schema_version": float64(1),
+		"wb_media_type":  "image-file",
+		"format":         "png",
+		"sha256":         image["sha256"],
+		"size":           image["size"],
+		"uri":            uri(image),
+		"width":          float64(2),
+		"height":         float64(2),
+		"caption":        "a cat",
+		"boxes": map[string]any{"predictions": file(
+			image["boxes"].(map[string]any)["predictions"].(map[string]any))},
+		"masks": map[string]any{"predictions": file(
+			image["masks"].(map[string]any)["predictions"].(map[string]any))},
+	}, converted.Rows[0].Input["image"])
+
+	artifactImage := input["artifact_image"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-image",
+		"schema_version": float64(1),
+		"wb_media_type":  "image-file",
+		"format":         "png",
+		"sha256":         artifactImage["sha256"],
+		"size":           artifactImage["size"],
+		"uri":            "wandb-artifact://abc123/media/images/artifact.png",
+		"width":          float64(2),
+		"height":         float64(2),
+	}, converted.Rows[0].Input["artifact_image"])
+
+	audio := input["audio"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-audio",
+		"schema_version": float64(1),
+		"wb_media_type":  "audio-file",
+		"sha256":         audio["sha256"],
+		"size":           audio["size"],
+		"uri":            uri(audio),
+		"caption":        "meow",
+	}, converted.Rows[0].Input["audio"])
+
+	video := input["video"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-video",
+		"schema_version": float64(1),
+		"wb_media_type":  "video-file",
+		"sha256":         video["sha256"],
+		"size":           video["size"],
+		"uri":            uri(video),
+		"width":          float64(640),
+		"height":         float64(480),
+		"caption":        "a clip",
+	}, converted.Rows[0].Input["video"])
+}
+
+func TestUpload_KeepsNullMedia(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+		DatasetFields: []*spb.EvalTableField{
+			{Source: "input", Name: "image", ValueType: "json", WandbMediaType: "image-file"},
+			{Source: "output", Name: "image", ValueType: "json", WandbMediaType: "image-file"},
+		},
+		RowsJson: []string{
+			`{"input":{"image":null},"output":null,"scores":{}}`,
+			`{"input":{},"scores":{}}`,
+		},
+	})
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+	assert.JSONEq(t,
+		`{"rows":[`+
+			`{"input":{"image":null},"output":null,"scores":{}},`+
+			`{"input":{},"scores":{}}`+
+			`]}`,
+		requests[2].Body)
+}
+
+func TestUpload_RejectsInvalidMedia(t *testing.T) {
+	testCases := []struct {
+		name      string
+		mediaType string
+		media     string
+		wantErr   string
+	}{
+		{
+			name:      "unknown media type",
+			mediaType: "html-file",
+			media:     `{"_type":"html-file","path":"a.html","sha256":"a","size":1}`,
+			wantErr:   `field "media" has unknown media type "html-file"`,
+		},
+		{
+			name:      "mismatched media type",
+			mediaType: "image-file",
+			media:     `{"_type":"audio-file","path":"a.wav","sha256":"a","size":1}`,
+			wantErr:   `field "media": expected image-file media, got "audio-file"`,
+		},
+		{
+			name:      "no file",
+			mediaType: "audio-file",
+			media:     `{"_type":"audio-file","sha256":"a","size":1}`,
+			wantErr:   `field "media": media has no path or artifact path`,
+		},
+		{
+			name:      "overlay without file",
+			mediaType: "image-file",
+			media: `{"_type":"image-file","path":"a.png","format":"png",` +
+				`"sha256":"a","size":1,"boxes":{"b":{"_type":"boxes2D"}}}`,
+			wantErr: `field "media": boxes "b": media has no path or artifact path`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ces := newFakeCES(t)
+			uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+			_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+				DatasetFields: []*spb.EvalTableField{{
+					Source:         "output",
+					Name:           "media",
+					ValueType:      "json",
+					WandbMediaType: tc.mediaType,
+				}},
+				RowsJson: []string{`{"output":{"media":` + tc.media + `},"scores":{}}`},
+			})
+
+			assert.ErrorContains(t, err, tc.wantErr)
+			// Rows are converted as they're sent, so the table may exist,
+			// but it gets no rows and no version.
+			for _, request := range ces.Requests() {
+				assert.NotContains(t,
+					[]string{tablePath + "/eval-id/rows", tablePath + "/eval-id/versions"},
+					request.Path)
+			}
+		})
+	}
 }

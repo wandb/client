@@ -38,6 +38,11 @@ const (
 
 	maxRowsPerBatch = 10_000
 
+	// rowBatchPrefix and rowBatchSuffix enclose the rows in a row append
+	// request body.
+	rowBatchPrefix = `{"rows":[`
+	rowBatchSuffix = `]}`
+
 	idempotencyKeyVersion = "v3"
 )
 
@@ -93,6 +98,17 @@ func (u *Uploader) Upload(
 		return nil, u.evalTablesErr
 	}
 
+	upserter, err := u.runHandle.Upserter()
+	if err != nil {
+		return nil, fmt.Errorf("evaltables: %v", err)
+	}
+	runPath := upserter.RunPath()
+
+	media, err := newMediaConverter(request.GetDatasetFields(), runPath)
+	if err != nil {
+		return nil, err
+	}
+
 	columns := ces.EvalTableColumnNewParams{
 		DatasetFields: ces.F(datasetFieldParams(request.GetDatasetFields())),
 		Scorers:       ces.F(scorerParams(request.GetScorers())),
@@ -100,12 +116,6 @@ func (u *Uploader) Upload(
 	if err := validateColumns(columns); err != nil {
 		return nil, err
 	}
-
-	upserter, err := u.runHandle.Upserter()
-	if err != nil {
-		return nil, fmt.Errorf("evaltables: %v", err)
-	}
-	runPath := upserter.RunPath()
 
 	scopeID, err := u.projectScopeID(ctx, runPath)
 	if err != nil {
@@ -139,9 +149,9 @@ func (u *Uploader) Upload(
 	totalRows := len(request.GetRowsJson())
 	rowsDone := 0
 	batchIndex := 0
-	for batch, err := range rowBatches(requestRows(request)) {
+	for batch, err := range rowBatches(media.convertRows(requestRows(request))) {
 		if err != nil {
-			return nil, fmt.Errorf("evaltables: failed to read rows: %v", err)
+			return nil, err
 		}
 
 		if _, err := evalTables.Rows.Add(
@@ -240,12 +250,9 @@ func datasetFieldParams(
 				ces.EvalTableColumnNewParamsDatasetFieldsValueType(field.GetValueType())),
 		}
 
-		if field.GetExtensionType() != "" {
-			params[i].ExtensionType = ces.F(
-				ces.EvalTableColumnNewParamsDatasetFieldsExtensionType(
-					field.GetExtensionType()))
-			params[i].ExtensionSchemaVersion = ces.F(
-				int64(field.GetExtensionSchemaVersion()))
+		if extensionType, ok := mediaExtensionTypes[field.GetWandbMediaType()]; ok {
+			params[i].ExtensionType = ces.F(extensionType)
+			params[i].ExtensionSchemaVersion = ces.F(int64(mediaSchemaVersion))
 		}
 	}
 
@@ -286,14 +293,14 @@ func rowsFromFile(path string) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
 		file, err := os.Open(path)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("evaltables: failed to read rows: %v", err))
 			return
 		}
 		defer func() { _ = file.Close() }()
 
 		gzReader, err := gzip.NewReader(file)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, fmt.Errorf("evaltables: failed to read rows: %v", err))
 			return
 		}
 		defer func() { _ = gzReader.Close() }()
@@ -312,7 +319,7 @@ func rowsFromFile(path string) iter.Seq2[[]byte, error] {
 			case errors.Is(err, io.EOF):
 				return
 			case err != nil:
-				yield(nil, err)
+				yield(nil, fmt.Errorf("evaltables: failed to read rows: %v", err))
 				return
 			}
 		}
@@ -331,10 +338,6 @@ func validateColumns(columns ces.EvalTableColumnNewParams) error {
 			return fmt.Errorf(
 				"evaltables: field %q has unknown value type %q",
 				field.Name.Value, field.ValueType.Value)
-		case field.ExtensionType.Present && !field.ExtensionType.Value.IsKnown():
-			return fmt.Errorf(
-				"evaltables: field %q has unknown extension type %q",
-				field.Name.Value, field.ExtensionType.Value)
 		}
 	}
 
@@ -370,14 +373,12 @@ type rowBatch struct {
 // targetRowBatchBytes, unless it has a single larger row.
 // It stops after the first error from rows.
 func rowBatches(rows iter.Seq2[[]byte, error]) iter.Seq2[rowBatch, error] {
-	const prefix, suffix = `{"rows":[`, `]}`
-
 	return func(yield func(rowBatch, error) bool) {
 		var body bytes.Buffer
 		nrows := 0
 
 		flush := func() bool {
-			body.WriteString(suffix)
+			body.WriteString(rowBatchSuffix)
 			batch := rowBatch{body: bytes.Clone(body.Bytes()), rows: nrows}
 			body.Reset()
 			nrows = 0
@@ -392,14 +393,14 @@ func rowBatches(rows iter.Seq2[[]byte, error]) iter.Seq2[rowBatch, error] {
 
 			if nrows > 0 &&
 				(nrows >= maxRowsPerBatch ||
-					body.Len()+1+len(row)+len(suffix) > targetRowBatchBytes) {
+					body.Len()+1+len(row)+len(rowBatchSuffix) > targetRowBatchBytes) {
 				if !flush() {
 					return
 				}
 			}
 
 			if nrows == 0 {
-				body.WriteString(prefix)
+				body.WriteString(rowBatchPrefix)
 			} else {
 				body.WriteByte(',')
 			}

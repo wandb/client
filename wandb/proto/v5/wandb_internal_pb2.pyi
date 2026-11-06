@@ -1548,18 +1548,16 @@ class UploadEvalTableRequest(_message.Message):
     def __init__(self, name: _Optional[str] = ..., dataset_fields: _Optional[_Iterable[_Union[EvalTableField, _Mapping]]] = ..., scorers: _Optional[_Iterable[_Union[EvalTableScorer, _Mapping]]] = ..., rows_json: _Optional[_Iterable[str]] = ..., rows_file_path: _Optional[str] = ..., _info: _Optional[_Union[_wandb_base_pb2._RequestInfo, _Mapping]] = ...) -> None: ...
 
 class EvalTableField(_message.Message):
-    __slots__ = ("source", "name", "value_type", "extension_type", "extension_schema_version")
+    __slots__ = ("source", "name", "value_type", "wandb_media_type")
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     VALUE_TYPE_FIELD_NUMBER: _ClassVar[int]
-    EXTENSION_TYPE_FIELD_NUMBER: _ClassVar[int]
-    EXTENSION_SCHEMA_VERSION_FIELD_NUMBER: _ClassVar[int]
+    WANDB_MEDIA_TYPE_FIELD_NUMBER: _ClassVar[int]
     source: str
     name: str
     value_type: str
-    extension_type: str
-    extension_schema_version: int
-    def __init__(self, source: _Optional[str] = ..., name: _Optional[str] = ..., value_type: _Optional[str] = ..., extension_type: _Optional[str] = ..., extension_schema_version: _Optional[int] = ...) -> None: ...
+    wandb_media_type: str
+    def __init__(self, source: _Optional[str] = ..., name: _Optional[str] = ..., value_type: _Optional[str] = ..., wandb_media_type: _Optional[str] = ...) -> None: ...
 
 class EvalTableScorer(_message.Message):
     __slots__ = ("name", "value_type")

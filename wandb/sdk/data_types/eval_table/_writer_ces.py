@@ -62,8 +62,7 @@ class _CESFieldType:
     """Track a column's value schema and build its CES field declaration."""
 
     value_type: PrimitiveValueType | Literal["json"]
-    extension_type: _media_ces.CESExtensionType | None = None
-    extension_schema_version: int | None = None
+    media_type: _media_ces.MediaType | None = None
 
     def declaration(self, source: _CESFieldSource, name: str) -> pb.EvalTableField:
         """Build the CES field declaration for this observed column type."""
@@ -72,10 +71,8 @@ class _CESFieldType:
             name=name,
             value_type=self.value_type,
         )
-        if self.extension_type is not None:
-            result.extension_type = self.extension_type
-        if self.extension_schema_version is not None:
-            result.extension_schema_version = self.extension_schema_version
+        if self.media_type is not None:
+            result.wandb_media_type = self.media_type
         return result
 
 
@@ -489,7 +486,7 @@ class CESWriter:
         column_name: str,
         class_label_accumulator: _media_ces.ClassLabelAccumulator,
     ) -> tuple[Any, _CESFieldType, int | None]:
-        """Return a CES extension value, its field type, and oversized byte count."""
+        """Return W&B media JSON, its field type, and oversized byte count."""
         try:
             media_cell = _media_ces.prepare_media(
                 value,
@@ -509,16 +506,11 @@ class CESWriter:
                 None,
                 _CESFieldType(
                     value_type="json",
-                    extension_type=_media_ces.media_extension_type(value),
-                    extension_schema_version=1,
+                    media_type=_media_ces.media_type(value),
                 ),
                 None,
             )
-        field_type = _CESFieldType(
-            value_type="json",
-            extension_type=media_cell.extension_type,
-            extension_schema_version=media_cell.extension_schema_version,
-        )
+        field_type = _CESFieldType(value_type="json", media_type=media_cell.media_type)
         oversized_size = media_cell.encoded_size if media_cell.oversized else None
         return media_cell.value, field_type, oversized_size
 
@@ -618,8 +610,8 @@ class CESWriter:
         if existing is None or existing == observed:
             return observed
         if (
-            existing.extension_type is None
-            and observed.extension_type is None
+            existing.media_type is None
+            and observed.media_type is None
             and existing.value_type != "json"
             and observed.value_type != "json"
         ):
@@ -630,8 +622,8 @@ class CESWriter:
                     observed.value_type,
                 )
             )
-        existing_type = existing.extension_type or existing.value_type
-        observed_type = observed.extension_type or observed.value_type
+        existing_type = existing.media_type or existing.value_type
+        observed_type = observed.media_type or observed.value_type
         raise UsageError(
             f"EvalTable column {column!r} mixes {existing_type!r} and "
             f"{observed_type!r} values."
