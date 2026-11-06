@@ -32,8 +32,7 @@ func NewCESHTTPClient(
 		Logger:             logger,
 		PreRetryLayers: httplayers.Concat(
 			httplayers.DefaultHeaders(s.GetExtraHTTPHeaders()),
-			// The SDK builds every request against its base URL, so
-			// credentials don't need scoping to it.
+			// Not limited to a URL: this client only sends requests to CES.
 			credentialProvider,
 		),
 	})
