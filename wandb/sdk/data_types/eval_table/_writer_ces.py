@@ -11,7 +11,7 @@ from typing_extensions import NotRequired, TypedDict
 import wandb
 from wandb.analytics import get_telemetry_recorder
 from wandb.analytics.opentelemetry.opentelemetry_proxy import LowCardinalityAttributes
-from wandb.errors import UsageError
+from wandb.errors import CommError, UsageError
 from wandb.proto import wandb_internal_pb2 as pb
 from wandb.sdk.data_types.base_types.media import Media
 from wandb.sdk.data_types.base_types.wb_value import WBValue
@@ -149,6 +149,26 @@ def _encode_rows(rows: Sequence[_CESRow]) -> list[str]:
     return rows_json
 
 
+def _upload_eval_table(
+    run: LocalRun,
+    request: pb.UploadEvalTableRequest,
+) -> pb.UploadEvalTableResponse:
+    """Upload an EvalTable to CES through wandb-core and wait for the result.
+
+    Raises:
+        CommError: If the upload fails.
+    """
+    if not run._interface:
+        raise UsageError("Cannot upload an EvalTable without a backend.")
+
+    handle = run._interface.deliver_upload_eval_table(request)
+    response = handle.wait_or(timeout=None).response.upload_eval_table_response
+    if response.error_message:
+        raise CommError(f"Failed to upload EvalTable: {response.error_message}")
+
+    return response
+
+
 class CESWriter:
     """Write an immutable EvalTable through the Evaluations service."""
 
@@ -197,7 +217,8 @@ class CESWriter:
                 f"First affected: {locations}.",
             )
 
-        response = bound_run.run._upload_eval_table(
+        response = _upload_eval_table(
+            bound_run.run,
             pb.UploadEvalTableRequest(
                 name=name,
                 dataset_fields=[
@@ -208,7 +229,7 @@ class CESWriter:
                     pb.EvalTableScorer(**scorer) for scorer in write_payloads.scorers
                 ],
                 rows_json=write_payloads.rows_json,
-            )
+            ),
         )
 
         _logger.debug(
