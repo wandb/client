@@ -513,7 +513,7 @@ def test_external_reference_artifact_image_is_null_by_default(
     warning = MagicMock()
     monkeypatch.setattr(wandb, "termwarn", warning)
     writer = _writer_ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     prepared = writer._build_write_payloads(
         name="eval",
@@ -541,7 +541,7 @@ def test_external_reference_artifact_image_raises_in_raise_mode(
     run = run_factory("run-one")
     image = _image_from_external_reference_artifact(tmp_path, monkeypatch)
     writer = _writer_ces.CESWriter(unsupported_media_mode="raise")
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     with pytest.raises(TypeError, match="external reference artifacts"):
         writer._build_write_payloads(
@@ -556,7 +556,7 @@ def test_external_reference_audio_is_null_by_default(run_factory, monkeypatch):
     warning = MagicMock()
     monkeypatch.setattr(wandb, "termwarn", warning)
     writer = _writer_ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     prepared = writer._build_write_payloads(
         name="eval",
@@ -580,7 +580,7 @@ def test_external_reference_audio_raises_in_raise_mode(run_factory):
     run = run_factory("run-one")
     audio = wandb.Audio("s3://bucket/sound.wav")
     writer = _writer_ces.CESWriter(unsupported_media_mode="raise")
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     with pytest.raises(TypeError, match="reference external storage"):
         writer._build_write_payloads(
@@ -893,7 +893,7 @@ def test_external_reference_artifact_image_overlays_are_null_by_default(
     warning = MagicMock()
     monkeypatch.setattr(wandb, "termwarn", warning)
     writer = _writer_ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     prepared = writer._build_write_payloads(
         name="eval",
@@ -917,7 +917,7 @@ def test_external_reference_artifact_image_overlays_raise_in_raise_mode(
         boxes={"predictions": {"box_data": [], "class_labels": {}}},
     )
     writer = _writer_ces.CESWriter(unsupported_media_mode="raise")
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
 
     with pytest.raises(TypeError, match="external reference artifacts"):
         writer._build_write_payloads(
@@ -1003,7 +1003,7 @@ def test_image_score_is_rejected_as_non_primitive(run_factory, tmp_path):
     run = run_factory("run-one")
     image = wandb.Image(_png(tmp_path))
     writer = _writer_ces.CESWriter()
-    writer.bind_to_run(run, "eval", 0)
+    writer.bind_to_run(run, "eval")
     rows = [
         _writer.WriteRow(
             inputs={"value": "x"},

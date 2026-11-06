@@ -94,7 +94,6 @@ class _CESFieldType:
 class _BoundRun:
     run: LocalRun
     eval_table_key: str
-    step: str
 
 
 @dataclass(frozen=True)
@@ -168,11 +167,11 @@ class CESWriter:
         if isinstance(value, WBValue):
             self._validate_wandb_value(value, column)
 
-    def bind_to_run(self, run: LocalRun, key: str, step: int | str) -> None:
-        """Bind the run and the history location the table is logged at."""
+    def bind_to_run(self, run: LocalRun, key: str) -> None:
+        """Bind the run and the history key the table is logged at."""
         if not run.entity or not run.project:
             raise UsageError("CES EvalTable logging requires a W&B entity and project.")
-        self._bound = _BoundRun(run=run, eval_table_key=key, step=str(step))
+        self._bound = _BoundRun(run=run, eval_table_key=key)
 
     def write(
         self,
@@ -201,8 +200,6 @@ class CESWriter:
         response = bound_run.run._log_eval_table(
             pb.LogEvalTableRequest(
                 name=name,
-                history_key=bound_run.eval_table_key,
-                step=bound_run.step,
                 dataset_fields=[
                     pb.EvalTableField(**dataset_field)
                     for dataset_field in write_payloads.dataset_fields
