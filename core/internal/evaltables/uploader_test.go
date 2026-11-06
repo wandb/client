@@ -1,4 +1,4 @@
-package evaluations_test
+package evaltables_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/wandb/wandb/core/internal/api"
-	"github.com/wandb/wandb/core/internal/evaluations"
+	"github.com/wandb/wandb/core/internal/evaltables"
 	"github.com/wandb/wandb/core/internal/gqlmock"
 	"github.com/wandb/wandb/core/internal/observabilitytest"
 	"github.com/wandb/wandb/core/internal/runhandle"
@@ -95,7 +95,7 @@ func newTestUploader(
 	t *testing.T,
 	ces *fakeCES,
 	projectJSON string,
-) (*evaluations.Uploader, *gqlmock.MockClient) {
+) (*evaltables.Uploader, *gqlmock.MockClient) {
 	t.Helper()
 	return newTestUploaderWithSettings(t, projectJSON, settings.From(&spb.Settings{
 		XCesBaseUrl: wrapperspb.String(ces.URL + "/evaluations"),
@@ -106,7 +106,7 @@ func newTestUploaderWithSettings(
 	t *testing.T,
 	projectJSON string,
 	s *settings.Settings,
-) (*evaluations.Uploader, *gqlmock.MockClient) {
+) (*evaltables.Uploader, *gqlmock.MockClient) {
 	t.Helper()
 
 	mockGQL := gqlmock.NewMockClient()
@@ -115,7 +115,7 @@ func newTestUploaderWithSettings(
 	runHandle := runhandle.New()
 	require.NoError(t, runHandle.Init(runupsertertest.NewOfflineUpserter(t)))
 
-	return evaluations.NewUploader(evaluations.UploaderParams{
+	return evaltables.NewUploader(evaltables.UploaderParams{
 		CredentialProvider: api.NewAPIKeyCredentialProvider("test-api-key"),
 		GraphqlClient:      mockGQL,
 		Logger:             observabilitytest.NewTestLogger(t),
