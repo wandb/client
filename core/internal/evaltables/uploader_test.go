@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/wandb/wandb/core/internal/api"
@@ -613,6 +615,121 @@ func TestUpload_ConvertsMedia(t *testing.T) {
 	assert.Contains(t, requests[2].Body, `"answer":"<b>a cat</b> & a dog"`)
 	assert.Contains(t, requests[2].Body, `"ratio":1.0`)
 	assert.Contains(t, requests[2].Body, `"tokens":9007199254740993`)
+}
+
+// TestUpload_ConvertsPythonMedia converts a request recorded from the Python
+// SDK, so that it covers the W&B media JSON that Python actually sends.
+//
+// Python's test_eval_table_media_request_matches_core_fixture checks that the
+// fixture is up to date.
+func TestUpload_ConvertsPythonMedia(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	fixture, err := os.ReadFile("testdata/upload_media_request.json")
+	require.NoError(t, err)
+	var recorded struct {
+		DatasetFields json.RawMessage   `json:"dataset_fields"`
+		Rows          []json.RawMessage `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(fixture, &recorded))
+	request := &spb.UploadEvalTableRequest{Name: "my-table"}
+	require.NoError(t, protojson.Unmarshal(
+		[]byte(`{"dataset_fields":`+string(recorded.DatasetFields)+`}`),
+		request,
+	))
+	for _, row := range recorded.Rows {
+		request.RowsJson = append(request.RowsJson, string(row))
+	}
+
+	_, err = uploader.Upload(context.Background(), request)
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 4)
+
+	var sent, converted struct {
+		Rows []struct {
+			Input map[string]map[string]any `json:"input"`
+		} `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(fixture, &sent))
+	require.NoError(t, json.Unmarshal([]byte(requests[2].Body), &converted))
+	require.Len(t, converted.Rows, 1)
+
+	// uri returns the CES URI expected for W&B media JSON.
+	uri := func(media map[string]any) string {
+		if artifactPath, ok := media["artifact_path"]; ok {
+			return artifactPath.(string)
+		}
+		return "wandb-run-file://test-entity/test-project/test-run/" +
+			media["path"].(string)
+	}
+	// file returns the CES value expected for a W&B media file's JSON.
+	file := func(media map[string]any) map[string]any {
+		return map[string]any{
+			"_type":  media["_type"],
+			"sha256": media["sha256"],
+			"size":   media["size"],
+			"uri":    uri(media),
+		}
+	}
+
+	input := sent.Rows[0].Input
+	image := input["image"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-image",
+		"schema_version": float64(1),
+		"wb_media_type":  "image-file",
+		"format":         "png",
+		"sha256":         image["sha256"],
+		"size":           image["size"],
+		"uri":            uri(image),
+		"width":          float64(2),
+		"height":         float64(2),
+		"caption":        "a cat",
+		"boxes": map[string]any{"predictions": file(
+			image["boxes"].(map[string]any)["predictions"].(map[string]any))},
+		"masks": map[string]any{"predictions": file(
+			image["masks"].(map[string]any)["predictions"].(map[string]any))},
+	}, converted.Rows[0].Input["image"])
+
+	artifactImage := input["artifact_image"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-image",
+		"schema_version": float64(1),
+		"wb_media_type":  "image-file",
+		"format":         "png",
+		"sha256":         artifactImage["sha256"],
+		"size":           artifactImage["size"],
+		"uri":            "wandb-artifact://abc123/media/images/artifact.png",
+		"width":          float64(2),
+		"height":         float64(2),
+	}, converted.Rows[0].Input["artifact_image"])
+
+	audio := input["audio"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-audio",
+		"schema_version": float64(1),
+		"wb_media_type":  "audio-file",
+		"sha256":         audio["sha256"],
+		"size":           audio["size"],
+		"uri":            uri(audio),
+		"caption":        "meow",
+	}, converted.Rows[0].Input["audio"])
+
+	video := input["video"]
+	assert.Equal(t, map[string]any{
+		"extension_type": "wandb-video",
+		"schema_version": float64(1),
+		"wb_media_type":  "video-file",
+		"sha256":         video["sha256"],
+		"size":           video["size"],
+		"uri":            uri(video),
+		"width":          float64(640),
+		"height":         float64(480),
+		"caption":        "a clip",
+	}, converted.Rows[0].Input["video"])
 }
 
 func TestUpload_KeepsNullMedia(t *testing.T) {

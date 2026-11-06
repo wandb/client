@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 import wandb
+from google.protobuf.json_format import MessageToDict
 from PIL import Image as PILImage
 from wandb.errors import UsageError
 from wandb.proto import wandb_internal_pb2 as pb
@@ -881,54 +882,70 @@ def test_cell_at_size_limit_becomes_null(run_factory, tmp_path, monkeypatch):
     assert result.oversized
 
 
-def test_eval_table_writes_supported_media_to_ces(
+# wandb-core's tests convert this request, so that they cover the W&B media
+# JSON that Python actually sends.
+_CORE_MEDIA_FIXTURE = (
+    Path(__file__).parents[2]
+    / "core/internal/evaltables/testdata/upload_media_request.json"
+)
+
+
+def _json_shape(value):
+    """Return the JSON value with each primitive replaced by its type name."""
+    if isinstance(value, dict):
+        return {key: _json_shape(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_shape(item) for item in value]
+    return type(value).__name__
+
+
+def test_eval_table_media_request_matches_core_fixture(
     run_factory,
     deliver_upload_eval_table,
     tmp_path,
+    monkeypatch,
 ):
     run = run_factory("run-one")
-    image = wandb.Image(_png(tmp_path))
-    audio, _ = _audio_or_video_with_local_file(tmp_path, "audio")
-    video, _ = _audio_or_video_with_local_file(tmp_path, "video")
+    image = wandb.Image(
+        _png(tmp_path),
+        caption="a cat",
+        boxes={"predictions": _box_overlay({1: "cat"})},
+        masks={"predictions": _mask_overlay({0: "background"}, fill=0)},
+    )
+    artifact_image = wandb.Image(_png(tmp_path, "artifact.png", color=(1, 2, 3)))
+    monkeypatch.setattr(
+        artifact_image,
+        "_get_artifact_entry_ref_url",
+        lambda: "wandb-artifact://abc123/media/images/artifact.png",
+    )
+    audio, _ = _audio_or_video_with_local_file(tmp_path, "audio", caption="meow")
+    video, _ = _audio_or_video_with_local_file(tmp_path, "video", caption="a clip")
     table = wandb.EvalTable(
-        columns=["image", "audio", "video"],
-        data=[[image, audio, video]],
-        input_columns=["image", "audio", "video"],
+        columns=["image", "artifact_image", "audio", "video"],
+        data=[[image, artifact_image, audio, video]],
+        input_columns=["image", "artifact_image", "audio", "video"],
         backend="ces",
     )
 
     run.log({"eval": table})
 
     [request] = [call.args[0] for call in deliver_upload_eval_table.call_args_list]
-    assert [
-        {field.name: value for field, value in dataset_field.ListFields()}
-        for dataset_field in request.dataset_fields
-    ] == [
-        {
-            "source": "input",
-            "name": "image",
-            "value_type": "json",
-            "wandb_media_type": "image-file",
-        },
-        {
-            "source": "input",
-            "name": "audio",
-            "value_type": "json",
-            "wandb_media_type": "audio-file",
-        },
-        {
-            "source": "input",
-            "name": "video",
-            "value_type": "json",
-            "wandb_media_type": "video-file",
-        },
-    ]
-    assert not request.scorers
-    inputs = json.loads(request.rows_json[0])["input"]
-    assert inputs["image"]["_type"] == "image-file"
-    assert inputs["image"]["format"] == "png"
-    assert inputs["audio"]["_type"] == "audio-file"
-    assert inputs["video"]["_type"] == "video-file"
+    actual = {
+        "dataset_fields": [
+            MessageToDict(field, preserving_proto_field_name=True)
+            for field in request.dataset_fields
+        ],
+        "rows": [json.loads(row) for row in request.rows_json],
+    }
+    if os.environ.get("WANDB_UPDATE_TEST_FIXTURES"):
+        _CORE_MEDIA_FIXTURE.write_text(json.dumps(actual, indent=2) + "\n")
+
+    # Hashes and paths depend on how PIL encodes images, so only compare the
+    # rows' shape. Rerun with WANDB_UPDATE_TEST_FIXTURES=1 to update the
+    # fixture, then rerun wandb-core's tests.
+    expected = json.loads(_CORE_MEDIA_FIXTURE.read_text())
+    assert actual["dataset_fields"] == expected["dataset_fields"]
+    assert _json_shape(actual["rows"]) == _json_shape(expected["rows"])
 
 
 def test_image_score_is_rejected_as_non_primitive(run_factory, tmp_path):
