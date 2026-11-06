@@ -3,15 +3,13 @@ package evaluations
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"sync"
 
 	"github.com/Khan/genqlient/graphql"
+	"github.com/google/uuid"
 
 	ces "github.com/wandb/cwevals-go"
 	"github.com/wandb/cwevals-go/option"
@@ -35,9 +33,8 @@ const (
 
 	// idempotencyKeyVersion versions the idempotency key format.
 	//
-	// Bump it if the row batching changes, so that a retry of a partially
-	// uploaded table can't reuse keys for differently batched rows.
-	idempotencyKeyVersion = "v2"
+	// v2 keys come from the SDK's Python writer.
+	idempotencyKeyVersion = "v3"
 )
 
 // Uploader uploads a run's EvalTables to CES.
@@ -118,7 +115,7 @@ func (u *Uploader) Upload(
 		return nil, err
 	}
 	scope := ces.F(scopeID)
-	keys := newIdempotencyKeys(runPath, request.GetHistoryKey(), request.GetStep())
+	keys := newIdempotencyKeys()
 
 	created, err := evalTables.New(
 		ctx,
@@ -301,37 +298,23 @@ func rowBatchBodies(rowsJSON []string) [][]byte {
 
 // idempotencyKeys derives CES idempotency keys for one EvalTable upload.
 //
-// The keys depend only on where the table is logged, so that retrying the
-// upload at the same location reuses the CES resources it already created.
+// The keys share a random ID, so that retries within the upload reuse the
+// CES resources it already created, and separate uploads never collide.
+// Uploads can't key on where the table is logged: in shared mode, writers
+// to the same run can log the same key at the same step.
+//
 // CES replays a request with the same key and body, and rejects one with
 // the same key but a different body.
 type idempotencyKeys struct {
 	prefix string
 }
 
-func newIdempotencyKeys(
-	runPath runbranch.RunPath,
-	historyKey string,
-	step string,
-) idempotencyKeys {
-	location, err := json.Marshal([]string{
-		runPath.Entity,
-		runPath.Project,
-		runPath.RunID,
-		historyKey,
-		step,
-	})
-	if err != nil {
-		// Marshaling a slice of strings cannot fail.
-		panic(errors.Join(errors.New("evaluations: unexpected error"), err))
-	}
-	digest := sha256.Sum256(location)
-
+func newIdempotencyKeys() idempotencyKeys {
 	return idempotencyKeys{
 		prefix: fmt.Sprintf(
 			"wandb-eval-table-%s-%s",
 			idempotencyKeyVersion,
-			hex.EncodeToString(digest[:]),
+			uuid.Must(uuid.NewV7()),
 		),
 	}
 }
