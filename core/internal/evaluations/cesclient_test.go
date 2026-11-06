@@ -24,38 +24,19 @@ func mustParseURL(t *testing.T, rawURL string) *url.URL {
 	return u
 }
 
-func TestCESBaseURL(t *testing.T) {
-	testCases := []struct {
-		wandbBaseURL string
-		want         string
-	}{
-		{"https://api.wandb.ai", "https://evaluations.wandb.ai"},
-		{"https://api.forge.coreweave.com", "https://evaluations.wandb.ai"},
-		{"https://forge.coreweave.com/api/wandb", "https://evaluations.wandb.ai"},
-		{
-			"https://api.qa.forge.coreweave.com",
-			"https://api.qa.forge.coreweave.com/evaluations",
-		},
-		{"https://wandb.example.com", "https://wandb.example.com/evaluations"},
-		{"https://example.com/wandb/", "https://example.com/wandb/evaluations"},
-	}
+func TestCESBaseURL_Default(t *testing.T) {
+	t.Setenv("CES_BASE_URL", "")
 
-	for _, tc := range testCases {
-		t.Run(tc.wandbBaseURL, func(t *testing.T) {
-			t.Setenv("CES_BASE_URL", "")
+	cesURL, err := evaluations.CESBaseURL()
 
-			cesURL, err := evaluations.CESBaseURL(mustParseURL(t, tc.wandbBaseURL))
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, cesURL.String())
-		})
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "https://evaluations.wandb.ai/", cesURL.String())
 }
 
 func TestCESBaseURL_EnvironmentOverride(t *testing.T) {
 	t.Setenv("CES_BASE_URL", "https://ces.example.com")
 
-	cesURL, err := evaluations.CESBaseURL(mustParseURL(t, "https://api.wandb.ai"))
+	cesURL, err := evaluations.CESBaseURL()
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://ces.example.com", cesURL.String())
