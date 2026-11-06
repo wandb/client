@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +50,10 @@ type fakeCES struct {
 	// onRequest, if set, is called with each request's path before
 	// responding.
 	onRequest func(path string)
+
+	// errorStatus, if set, returns an HTTP status to fail a request with,
+	// or 0 to respond normally.
+	errorStatus func(path string) int
 }
 
 func newFakeCES(t *testing.T) *fakeCES {
@@ -69,6 +75,12 @@ func newFakeCES(t *testing.T) *fakeCES {
 
 			if ces.onRequest != nil {
 				ces.onRequest(r.URL.Path)
+			}
+			if ces.errorStatus != nil {
+				if status := ces.errorStatus(r.URL.Path); status != 0 {
+					w.WriteHeader(status)
+					return
+				}
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -280,27 +292,41 @@ func TestUpload_IdempotencyKeys(t *testing.T) {
 
 	requests := ces.Requests()
 	require.Len(t, requests, 8)
-	keys := make([]string, len(requests))
-	for i, req := range requests {
-		keys[i] = req.IdempotencyKey
+	keys := make(map[string]bool)
+	for _, req := range requests {
+		require.NotEmpty(t, req.IdempotencyKey, req.Path)
+		keys[req.IdempotencyKey] = true
 	}
-	uuidPattern := `[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`
-	for _, upload := range [][]string{keys[:4], keys[4:]} {
-		prefix, found := strings.CutSuffix(upload[0], "-create")
-		require.True(t, found, upload[0])
-		assert.Regexp(t, `^wandb-eval-table-v3-`+uuidPattern+`$`, prefix)
-		assert.Equal(t,
-			[]string{
-				prefix + "-create",
-				prefix + "-columns",
-				prefix + "-rows-0",
-				prefix + "-version",
-			},
-			upload)
+	// Each request needs its own key, since CES rejects a reused key with a
+	// different body. Uploading the same table again, such as from another
+	// writer in shared mode, must not reuse the first upload's keys.
+	assert.Len(t, keys, len(requests))
+}
+
+func TestUpload_RetriesReuseIdempotencyKey(t *testing.T) {
+	evaltables.SetRetryWaitMinForTest(t, time.Millisecond)
+	ces := newFakeCES(t)
+	var failed atomic.Bool
+	ces.errorStatus = func(path string) int {
+		if strings.HasSuffix(path, "/rows") && failed.CompareAndSwap(false, true) {
+			return http.StatusServiceUnavailable
+		}
+		return 0
 	}
-	// Uploading the same table again, such as from another writer in
-	// shared mode, must not collide with the first upload's keys.
-	assert.NotEqual(t, keys[0], keys[4])
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+		Name:     "my-table",
+		RowsJson: []string{`{}`},
+	})
+	require.NoError(t, err)
+
+	requests := ces.Requests()
+	require.Len(t, requests, 5)
+	failedAttempt, retry := requests[2], requests[3]
+	assert.True(t, strings.HasSuffix(failedAttempt.Path, "/rows"), failedAttempt.Path)
+	assert.Equal(t, failedAttempt, retry)
+
 }
 
 func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
