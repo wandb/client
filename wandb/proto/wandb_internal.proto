@@ -1318,6 +1318,13 @@ message UploadEvalTableRequest {
   // file after reading it, whether or not the upload succeeds.
   string rows_file_path = 5;
 
+  // Run files referenced by the table's media cells, relative to the run's
+  // files directory.
+  //
+  // wandb-core uploads them like files saved with the "now" policy. The
+  // response does not wait for these uploads.
+  repeated string media_paths = 6;
+
   _RequestInfo _info = 200;
 }
 

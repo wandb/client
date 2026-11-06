@@ -52,12 +52,16 @@ class PreparedMediaCell:
 
     Media implementations set `value` to `None` when the encoded media JSON
     reaches `CES_MAX_CELL_BYTES` while retaining its type and size metadata.
+
+    `new_run_files` lists files newly placed in the run's files directory for the
+    cell, relative to that directory. The caller must upload them.
     """
 
     value: dict[str, Any] | None
     media_type: MediaType
     encoded_size: int
     oversized: bool
+    new_run_files: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -174,6 +178,7 @@ def prepare_media(
     class_label_accumulator: ClassLabelAccumulator | None = None,
 ) -> PreparedMediaCell:
     """Prepare supported media for one EvalTable cell in the active run."""
+    new_run_files: list[str] = []
     wandb_media_type = media_type(media)
     working_media = (
         _image_for_run(media, run)
@@ -181,13 +186,25 @@ def prepare_media(
         else _media_for_run(media, run)
     )
     if _committed_artifact_ref_url(working_media) is None:
-        _ensure_eval_table_run_file(working_media, run, field.eval_table_key)
+        _ensure_eval_table_run_file(
+            working_media,
+            run,
+            field.eval_table_key,
+            new_run_files=new_run_files,
+        )
     if isinstance(working_media, Image):
-        _prepare_image_overlays(working_media, run, field, class_label_accumulator)
+        _prepare_image_overlays(
+            working_media,
+            run,
+            field,
+            class_label_accumulator,
+            new_run_files=new_run_files,
+        )
 
     return _prepared_media_cell(
         working_media.to_json(run),
         media_type=wandb_media_type,
+        new_run_files=tuple(new_run_files),
     )
 
 
@@ -196,10 +213,17 @@ def _prepare_image_overlays(
     run: Run,
     field: EvalTableMediaField,
     class_label_accumulator: ClassLabelAccumulator | None,
+    *,
+    new_run_files: list[str],
 ) -> None:
     accumulated_labels = class_label_accumulator or ClassLabelAccumulator()
     for overlay_key, overlay in _image_overlays(image):
-        _ensure_eval_table_run_file(overlay, run, field.eval_table_key)
+        _ensure_eval_table_run_file(
+            overlay,
+            run,
+            field.eval_table_key,
+            new_run_files=new_run_files,
+        )
         accumulated_labels.add(
             overlay,
             field,
@@ -215,6 +239,7 @@ def _prepared_media_cell(
     media_json: dict[str, Any],
     *,
     media_type: MediaType,
+    new_run_files: tuple[str, ...],
 ) -> PreparedMediaCell:
     encoded_size = len(_encode_json(media_json))
     oversized = encoded_size >= CES_MAX_CELL_BYTES
@@ -223,6 +248,7 @@ def _prepared_media_cell(
         media_type=media_type,
         encoded_size=encoded_size,
         oversized=oversized,
+        new_run_files=new_run_files,
     )
 
 
@@ -316,8 +342,18 @@ def _ensure_eval_table_run_file(
     media: Media,
     run: Run,
     eval_table_key: str,
+    *,
+    new_run_files: list[str],
 ) -> str:
-    """Bind media to a run file and return its path in the run's files directory."""
+    """Bind media to a run file and return its path in the run's files directory.
+
+    Args:
+        media: The media to bind.
+        run: The run whose files directory receives the media's file.
+        eval_table_key: The history key the EvalTable is logged at.
+        new_run_files: Receives the path of the media's file, relative to the
+            run's files directory, if it is newly placed there.
+    """
     if media._run is run:
         return _logical_run_file_path(media, run)
 
@@ -361,21 +397,27 @@ def _ensure_eval_table_run_file(
         directory,
         f"{media._sha256[:_DIGEST_PATH_LENGTH]}{extension}",
     )
-    _place_media_file_in_run(media, run, logical_path)
+    if _place_media_file_in_run(media, run, logical_path):
+        new_run_files.append(logical_path)
     return LogicalPath(logical_path)
 
 
 # Mirrors the file placement in `Media.bind_to_run`, which only supports its own
 # key/step/id naming, so EvalTables can keep content-addressed paths for dedupe.
-def _place_media_file_in_run(media: Media, run: Run, logical_path: str) -> None:
+def _place_media_file_in_run(media: Media, run: Run, logical_path: str) -> bool:
+    """Move, link, or copy the media's file to a path in the run's files directory.
+
+    Returns:
+        Whether the file was newly placed, rather than already present.
+    """
     assert media._path is not None
     new_path = os.path.join(run.dir, logical_path)
     # Media repeated across rows shares one content-addressed file, so copy and
-    # publish it once.
+    # upload it once.
     if not media._is_tmp and os.path.exists(new_path):
         media._path = new_path
         media._run = run
-        return
+        return False
 
     filesystem.mkdir_exists_ok(os.path.dirname(new_path))
 
@@ -393,7 +435,7 @@ def _place_media_file_in_run(media: Media, run: Run, logical_path: str) -> None:
 
     media._path = new_path
     media._run = run
-    run._publish_file(logical_path)
+    return True
 
 
 def _logical_run_file_path(media: Media, run: Run) -> LogicalPath:

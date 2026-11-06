@@ -2711,6 +2711,13 @@ pub struct UploadEvalTableRequest {
     /// file after reading it, whether or not the upload succeeds.
     #[prost(string, tag = "5")]
     pub rows_file_path: ::prost::alloc::string::String,
+    /// Run files referenced by the table's media cells, relative to the run's
+    /// files directory.
+    ///
+    /// wandb-core uploads them like files saved with the "now" policy. The
+    /// response does not wait for these uploads.
+    #[prost(string, repeated, tag = "6")]
+    pub media_paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "200")]
     pub info: ::core::option::Option<RequestInfo>,
 }

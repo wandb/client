@@ -9765,7 +9765,13 @@ type UploadEvalTableRequest struct {
 	//
 	// It is used for tables too large to send inline. wandb-core deletes the
 	// file after reading it, whether or not the upload succeeds.
-	RowsFilePath  string        `protobuf:"bytes,5,opt,name=rows_file_path,json=rowsFilePath,proto3" json:"rows_file_path,omitempty"`
+	RowsFilePath string `protobuf:"bytes,5,opt,name=rows_file_path,json=rowsFilePath,proto3" json:"rows_file_path,omitempty"`
+	// Run files referenced by the table's media cells, relative to the run's
+	// files directory.
+	//
+	// wandb-core uploads them like files saved with the "now" policy. The
+	// response does not wait for these uploads.
+	MediaPaths    []string      `protobuf:"bytes,6,rep,name=media_paths,json=mediaPaths,proto3" json:"media_paths,omitempty"`
 	XInfo         *XRequestInfo `protobuf:"bytes,200,opt,name=_info,json=Info,proto3" json:"_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -9834,6 +9840,13 @@ func (x *UploadEvalTableRequest) GetRowsFilePath() string {
 		return x.RowsFilePath
 	}
 	return ""
+}
+
+func (x *UploadEvalTableRequest) GetMediaPaths() []string {
+	if x != nil {
+		return x.MediaPaths
+	}
+	return nil
 }
 
 func (x *UploadEvalTableRequest) GetXInfo() *XRequestInfo {
@@ -13064,13 +13077,15 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x13LogArtifactResponse\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xa5\x02\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xc6\x02\n" +
 	"\x16UploadEvalTableRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12E\n" +
 	"\x0edataset_fields\x18\x02 \x03(\v2\x1e.wandb_internal.EvalTableFieldR\rdatasetFields\x129\n" +
 	"\ascorers\x18\x03 \x03(\v2\x1f.wandb_internal.EvalTableScorerR\ascorers\x12\x1b\n" +
 	"\trows_json\x18\x04 \x03(\tR\browsJson\x12$\n" +
-	"\x0erows_file_path\x18\x05 \x01(\tR\frowsFilePath\x122\n" +
+	"\x0erows_file_path\x18\x05 \x01(\tR\frowsFilePath\x12\x1f\n" +
+	"\vmedia_paths\x18\x06 \x03(\tR\n" +
+	"mediaPaths\x122\n" +
 	"\x05_info\x18\xc8\x01 \x01(\v2\x1c.wandb_internal._RequestInfoR\x04Info\"\x85\x01\n" +
 	"\x0eEvalTableField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +

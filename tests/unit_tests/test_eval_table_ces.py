@@ -268,6 +268,7 @@ def test_ces_eval_table_media_telemetry_counts_affected_writes(
         dataset_fields=[],
         scorers=[],
         rows_json=[],
+        media_paths=[],
         media_cells_examined=1,
         oversized_media_cells=oversized_media_cells,
         oversized_locations=(),
