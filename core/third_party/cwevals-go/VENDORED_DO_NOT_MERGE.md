@@ -6,16 +6,14 @@
 > version instead. This copy exists only for early development and must not
 > be merged.
 
-This is a copy of the generated CoreWeave Evaluations (CES) Go SDK from
-`services/evaluations/generated/go` in wandb/core at commit
-`7d0cb3f9afcf91a77e529dc732a15d4801000881` (`kelu/ces-stainless-case`), without
-the files that `wandb/cwevals-go` releases leave out or that only run its
-own tooling.
+This is a copy of the CoreWeave Evaluations (CES) Go SDK `v0.0.1-beta.3`, as
+prepared for release in a local `wandb/cwevals-go` checkout by wandb/core's
+`.github/scripts/evaluations-publish-go-sdk.sh prepare`, without the files that
+only run the SDK's own tooling.
 
-To refresh it from a wandb/core checkout at `$CORE`:
+To refresh it from a prepared `wandb/cwevals-go` checkout at `$CWEVALS`:
 
 ```bash
-git -C "$CORE" archive <commit> services/evaluations/generated/go | tar -x -C /tmp/cwevals-go
-rsync -a --delete --exclude examples --exclude scripts --exclude lib --exclude Brewfile --exclude .devcontainer --exclude .github --exclude .stats.yml --exclude .gitignore --exclude VENDORED_DO_NOT_MERGE.md /tmp/cwevals-go/services/evaluations/generated/go/ core/third_party/cwevals-go/
+rsync -a --delete --exclude .git --exclude .github --exclude examples --exclude scripts --exclude lib --exclude Brewfile --exclude .devcontainer --exclude .stats.yml --exclude .gitignore --exclude VENDORED_DO_NOT_MERGE.md "$CWEVALS"/ core/third_party/cwevals-go/
 cd core && go mod tidy && go mod vendor
 ```
