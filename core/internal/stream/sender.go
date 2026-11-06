@@ -278,7 +278,6 @@ func (f *SenderFactory) NewWithFileStream(
 
 	if !s.settings.IsOffline() {
 		s.evalTableUploader = evaluations.NewUploader(evaluations.UploaderParams{
-			BaseURL:            f.BaseURL,
 			CredentialProvider: f.CredentialProvider,
 			GraphqlClient:      f.GraphqlClient,
 			Logger:             f.Logger,
