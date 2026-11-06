@@ -32,6 +32,11 @@ const (
 
 	maxRowsPerBatch = 10_000
 
+	// rowBatchPrefix and rowBatchSuffix enclose the rows in a row append
+	// request body.
+	rowBatchPrefix = `{"rows":[`
+	rowBatchSuffix = `]}`
+
 	idempotencyKeyVersion = "v3"
 )
 
@@ -81,6 +86,17 @@ func (u *Uploader) Upload(
 		return nil, u.evalTablesErr
 	}
 
+	upserter, err := u.runHandle.Upserter()
+	if err != nil {
+		return nil, fmt.Errorf("evaltables: %v", err)
+	}
+	runPath := upserter.RunPath()
+
+	media, err := newMediaConverter(request.GetDatasetFields(), runPath)
+	if err != nil {
+		return nil, err
+	}
+
 	columns := ces.EvalTableColumnNewParams{
 		DatasetFields: ces.F(datasetFieldParams(request.GetDatasetFields())),
 		Scorers:       ces.F(scorerParams(request.GetScorers())),
@@ -89,11 +105,10 @@ func (u *Uploader) Upload(
 		return nil, err
 	}
 
-	upserter, err := u.runHandle.Upserter()
+	rowsJSON, err := media.convertRows(request.GetRowsJson())
 	if err != nil {
-		return nil, fmt.Errorf("evaltables: %v", err)
+		return nil, err
 	}
-	runPath := upserter.RunPath()
 
 	scopeID, err := u.projectScopeID(ctx, runPath)
 	if err != nil {
@@ -124,9 +139,9 @@ func (u *Uploader) Upload(
 
 	// NewProgress only fails if the operation already has progress.
 	progress, _ := wboperation.Get(ctx).NewProgress()
-	totalRows := len(request.GetRowsJson())
+	totalRows := len(rowsJSON)
 	rowsDone := 0
-	for i, batch := range rowBatches(request.GetRowsJson()) {
+	for i, batch := range rowBatches(rowsJSON) {
 		_, err = evalTables.Rows.Add(
 			ctx,
 			created.EvaluationID,
@@ -218,12 +233,9 @@ func datasetFieldParams(
 				ces.EvalTableColumnNewParamsDatasetFieldsValueType(field.GetValueType())),
 		}
 
-		if field.GetExtensionType() != "" {
-			params[i].ExtensionType = ces.F(
-				ces.EvalTableColumnNewParamsDatasetFieldsExtensionType(
-					field.GetExtensionType()))
-			params[i].ExtensionSchemaVersion = ces.F(
-				int64(field.GetExtensionSchemaVersion()))
+		if extensionType, ok := mediaExtensionTypes[field.GetWandbMediaType()]; ok {
+			params[i].ExtensionType = ces.F(extensionType)
+			params[i].ExtensionSchemaVersion = ces.F(int64(mediaSchemaVersion))
 		}
 	}
 
@@ -256,10 +268,6 @@ func validateColumns(columns ces.EvalTableColumnNewParams) error {
 			return fmt.Errorf(
 				"evaltables: field %q has unknown value type %q",
 				field.Name.Value, field.ValueType.Value)
-		case field.ExtensionType.Present && !field.ExtensionType.Value.IsKnown():
-			return fmt.Errorf(
-				"evaltables: field %q has unknown extension type %q",
-				field.Name.Value, field.ExtensionType.Value)
 		}
 	}
 
@@ -294,14 +302,12 @@ type rowBatch struct {
 // Each body has at most maxRowsPerBatch rows and is at most
 // targetRowBatchBytes, unless it has a single larger row.
 func rowBatches(rowsJSON []string) []rowBatch {
-	const prefix, suffix = `{"rows":[`, `]}`
-
 	var batches []rowBatch
 	var body bytes.Buffer
 	nrows := 0
 
 	flush := func() {
-		body.WriteString(suffix)
+		body.WriteString(rowBatchSuffix)
 		batches = append(batches, rowBatch{
 			body: bytes.Clone(body.Bytes()),
 			rows: nrows,
@@ -313,12 +319,12 @@ func rowBatches(rowsJSON []string) []rowBatch {
 	for _, row := range rowsJSON {
 		if nrows > 0 &&
 			(nrows >= maxRowsPerBatch ||
-				body.Len()+1+len(row)+len(suffix) > targetRowBatchBytes) {
+				body.Len()+1+len(row)+len(rowBatchSuffix) > targetRowBatchBytes) {
 			flush()
 		}
 
 		if nrows == 0 {
-			body.WriteString(prefix)
+			body.WriteString(rowBatchPrefix)
 		} else {
 			body.WriteByte(',')
 		}
