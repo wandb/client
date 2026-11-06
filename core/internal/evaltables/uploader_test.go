@@ -344,6 +344,44 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 	assert.Equal(t, []int{7, 3}, batchSizes)
 }
 
+func TestUpload_KeepsExampleKeysOfRowsWithoutInputs(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	// Each row is 3 MiB, so only two fit under the 8 MiB target.
+	rows := make([]string, 3)
+	for i := range rows {
+		rows[i] = fmt.Sprintf(
+			`{"input":null,"output":{"x":%q},"scores":{},"example_key":"%d"}`,
+			strings.Repeat("a", 3<<20),
+			i+1,
+		)
+	}
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.UploadEvalTableRequest{Name: "t", RowsJson: rows})
+	require.NoError(t, err)
+
+	type row struct {
+		Input      json.RawMessage
+		ExampleKey string `json:"example_key"`
+	}
+	var exampleKeys [][]string
+	for _, req := range ces.Requests() {
+		if !strings.HasSuffix(req.Path, "/rows") {
+			continue
+		}
+		var body struct{ Rows []row }
+		require.NoError(t, json.Unmarshal([]byte(req.Body), &body))
+		var keys []string
+		for _, r := range body.Rows {
+			assert.Equal(t, "null", string(r.Input))
+			keys = append(keys, r.ExampleKey)
+		}
+		exampleKeys = append(exampleKeys, keys)
+	}
+	assert.Equal(t, [][]string{{"1", "2"}, {"3"}}, exampleKeys)
+}
+
 func TestUpload_ReportsRowProgress(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
