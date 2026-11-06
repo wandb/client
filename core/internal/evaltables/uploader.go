@@ -18,6 +18,7 @@ import (
 	"github.com/wandb/wandb/core/internal/runbranch"
 	"github.com/wandb/wandb/core/internal/runhandle"
 	"github.com/wandb/wandb/core/internal/settings"
+	"github.com/wandb/wandb/core/internal/wboperation"
 	spb "github.com/wandb/wandb/core/pkg/service_go_proto"
 )
 
@@ -41,7 +42,7 @@ type Uploader struct {
 	// scopeMu guards scopeID.
 	scopeMu sync.Mutex
 
-	// scopeID is the run's project's internal ID, or empty if not yet known.
+	// scopeID is the run's project's internal ID, or empty if not yet fetched.
 	scopeID string
 }
 
@@ -68,8 +69,6 @@ func NewUploader(params UploaderParams) *Uploader {
 
 // Upload creates an EvalTable in CES, adds its columns and rows,
 // and cuts a version.
-//
-// It must be called after the run is initialized.
 func (u *Uploader) Upload(
 	ctx context.Context,
 	request *spb.UploadEvalTableRequest,
@@ -115,7 +114,11 @@ func (u *Uploader) Upload(
 		return nil, fmt.Errorf("evaltables: failed to add columns: %v", err)
 	}
 
-	for i, body := range rowBatchBodies(request.GetRowsJson()) {
+	// NewProgress only fails if the operation already has progress.
+	progress, _ := wboperation.Get(ctx).NewProgress()
+	totalRows := len(request.GetRowsJson())
+	rowsDone := 0
+	for i, batch := range rowBatches(request.GetRowsJson()) {
 		_, err = evalTables.Rows.Add(
 			ctx,
 			created.EvaluationID,
@@ -123,11 +126,14 @@ func (u *Uploader) Upload(
 			keys.option(fmt.Sprintf("rows-%d", i)),
 			// The rows are already JSON, so send them without decoding them
 			// into the CES SDK's types.
-			option.WithRequestBody("application/json", body),
+			option.WithRequestBody("application/json", batch.body),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("evaltables: failed to add rows: %v", err)
 		}
+
+		rowsDone += batch.rows
+		progress.SetUnitsOfTotal(rowsDone, totalRows, "rows")
 	}
 
 	version, err := evalTables.Versions.New(
@@ -230,20 +236,29 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 	return params
 }
 
-// rowBatchBodies groups JSON-encoded rows into row append request bodies.
+// rowBatch is a row append request body and the number of rows in it.
+type rowBatch struct {
+	body []byte
+	rows int
+}
+
+// rowBatches groups JSON-encoded rows into row append request bodies.
 //
 // Each body has at most maxRowsPerBatch rows and is at most
 // targetRowBatchBytes, unless it has a single larger row.
-func rowBatchBodies(rowsJSON []string) [][]byte {
+func rowBatches(rowsJSON []string) []rowBatch {
 	const prefix, suffix = `{"rows":[`, `]}`
 
-	var bodies [][]byte
+	var batches []rowBatch
 	var body bytes.Buffer
 	nrows := 0
 
 	flush := func() {
 		body.WriteString(suffix)
-		bodies = append(bodies, bytes.Clone(body.Bytes()))
+		batches = append(batches, rowBatch{
+			body: bytes.Clone(body.Bytes()),
+			rows: nrows,
+		})
 		body.Reset()
 		nrows = 0
 	}
@@ -268,7 +283,7 @@ func rowBatchBodies(rowsJSON []string) [][]byte {
 		flush()
 	}
 
-	return bodies
+	return batches
 }
 
 // idempotencyKeys derives CES idempotency keys for one EvalTable upload.
