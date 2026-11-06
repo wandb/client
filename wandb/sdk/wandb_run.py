@@ -105,8 +105,6 @@ if TYPE_CHECKING:
     from wandb.proto.wandb_internal_pb2 import (
         GetSummaryResponse,
         SampledHistoryResponse,
-        UploadEvalTableRequest,
-        UploadEvalTableResponse,
     )
 
     from .artifacts.artifact import Artifact
@@ -1392,33 +1390,6 @@ class Run:
             return
         files: FilesDict = dict(files=[(GlobStr(fname), "now")])
         self._interface.publish_files(files)
-
-    def _upload_eval_table(
-        self, request: UploadEvalTableRequest
-    ) -> UploadEvalTableResponse:
-        """Upload an EvalTable to CES and wait for the result.
-
-        This is a W&B-internal function: it can be used by other internal
-        wandb code.
-
-        Args:
-            request: The EvalTable to upload.
-
-        Returns:
-            The IDs of the uploaded EvalTable.
-
-        Raises:
-            CommError: If the upload fails.
-        """
-        if not self._interface:
-            raise UsageError("Cannot upload an EvalTable without a backend.")
-
-        handle = self._interface.deliver_upload_eval_table(request)
-        response = handle.wait_or(timeout=None).response.upload_eval_table_response
-        if response.error_message:
-            raise CommError(f"Failed to upload EvalTable: {response.error_message}")
-
-        return response
 
     def _pop_all_charts(
         self,
