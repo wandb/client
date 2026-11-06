@@ -464,9 +464,10 @@ message Settings {
   // The relative path on the CoreWeave metadata server to which to make requests.
   google.protobuf.StringValue x_stats_coreweave_metadata_endpoint = 193;
 
-  google.protobuf.BoolValue _aws_lambda = 2;
-  // The URL for the CoreWeave Evaluations service (CES).
+  // The URL for the CoreWeave Evaluation Service (CES).
   google.protobuf.StringValue _ces_base_url = 212;
+
+  google.protobuf.BoolValue _aws_lambda = 2;
   google.protobuf.BoolValue x_cli_only_mode = 4;
   google.protobuf.BoolValue _colab = 5;
   google.protobuf.BoolValue x_disable_viewer = 11;
