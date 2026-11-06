@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/evaluations"
@@ -96,7 +97,17 @@ func newTestUploader(
 	projectJSON string,
 ) (*evaluations.Uploader, *gqlmock.MockClient) {
 	t.Helper()
-	t.Setenv("CES_BASE_URL", ces.URL+"/evaluations")
+	return newTestUploaderWithSettings(t, projectJSON, settings.From(&spb.Settings{
+		XCesBaseUrl: wrapperspb.String(ces.URL + "/evaluations"),
+	}))
+}
+
+func newTestUploaderWithSettings(
+	t *testing.T,
+	projectJSON string,
+	s *settings.Settings,
+) (*evaluations.Uploader, *gqlmock.MockClient) {
+	t.Helper()
 
 	mockGQL := gqlmock.NewMockClient()
 	mockGQL.StubMatchOnce(gqlmock.WithOpName("ProjectInternalID"), projectJSON)
@@ -109,7 +120,7 @@ func newTestUploader(
 		GraphqlClient:      mockGQL,
 		Logger:             observabilitytest.NewTestLogger(t),
 		RunHandle:          runHandle,
-		Settings:           settings.New(),
+		Settings:           s,
 	}), mockGQL
 }
 
@@ -254,6 +265,15 @@ func TestUpload_SplitsRowsIntoBatches(t *testing.T) {
 		batchSizes = append(batchSizes, len(body.Rows))
 	}
 	assert.Equal(t, []int{7, 3}, batchSizes)
+}
+
+func TestUpload_NoCESURL(t *testing.T) {
+	uploader, _ := newTestUploaderWithSettings(t, projectFoundJSON, settings.New())
+
+	_, err := uploader.Upload(context.Background(),
+		&spb.LogEvalTableRequest{Name: "t"})
+
+	assert.ErrorContains(t, err, "no CES URL in settings")
 }
 
 func TestUpload_ProjectNotFound(t *testing.T) {
