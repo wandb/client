@@ -122,7 +122,7 @@ func (u *Uploader) Upload(
 			ces.EvalTableRowAddParams{ScopeID: scope},
 			keys.option(fmt.Sprintf("rows-%d", i)),
 			// The rows are already JSON, so send them without decoding them
-			// into the SDK's types.
+			// into the CES SDK's types.
 			option.WithRequestBody("application/json", body),
 		)
 		if err != nil {
