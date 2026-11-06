@@ -25,15 +25,11 @@ import (
 
 const (
 	// targetRowBatchBytes is the size above which a row append request body
-	// is split, leaving headroom below CES's 16 MiB request limit.
+	// is split, so we leave headroom below CES's 16 MiB request limit.
 	targetRowBatchBytes = 8 << 20
 
-	// maxRowsPerBatch is the most rows in one row append request.
 	maxRowsPerBatch = 10_000
 
-	// idempotencyKeyVersion versions the idempotency key format.
-	//
-	// v2 keys come from the SDK's Python writer.
 	idempotencyKeyVersion = "v3"
 )
 
