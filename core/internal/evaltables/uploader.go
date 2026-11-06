@@ -236,7 +236,6 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 	return params
 }
 
-// rowBatch is a row append request body and the number of rows in it.
 type rowBatch struct {
 	body []byte
 	rows int
@@ -286,7 +285,11 @@ func rowBatches(rowsJSON []string) []rowBatch {
 	return batches
 }
 
-// idempotencyKeys derives CES idempotency keys for one EvalTable upload.
+type idempotencyKeys struct {
+	prefix string
+}
+
+// newIdempotencyKeys derives CES idempotency keys for one EvalTable upload.
 //
 // The keys share a random ID, so that retries within the upload reuse the
 // CES resources it already created, and separate uploads never collide.
@@ -295,10 +298,6 @@ func rowBatches(rowsJSON []string) []rowBatch {
 //
 // CES replays a request with the same key and body, and rejects one with
 // the same key but a different body.
-type idempotencyKeys struct {
-	prefix string
-}
-
 func newIdempotencyKeys() idempotencyKeys {
 	return idempotencyKeys{
 		prefix: fmt.Sprintf(
