@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 
 	"github.com/Khan/genqlient/graphql"
@@ -44,8 +45,9 @@ type Uploader struct {
 	graphqlClient graphql.Client
 	runHandle     *runhandle.RunHandle
 
-	// evalTables is nil if the settings have no CES URL.
-	evalTables *ces.EvalTableService
+	// evalTables is the CES client, or nil if evalTablesErr says why not.
+	evalTables    *ces.EvalTableService
+	evalTablesErr error
 
 	// scopeMu guards scopeID.
 	scopeMu sync.Mutex
@@ -67,19 +69,29 @@ func NewUploader(params UploaderParams) *Uploader {
 		graphqlClient: params.GraphqlClient,
 		runHandle:     params.RunHandle,
 	}
+	u.evalTables, u.evalTablesErr = newEvalTableService(params)
+	return u
+}
 
-	if cesBaseURL := params.Settings.GetCESBaseURL(); cesBaseURL != "" {
-		u.evalTables = NewEvalTableService(
-			cesBaseURL,
-			NewCESHTTPClient(
-				params.CredentialProvider,
-				params.Logger.Logger,
-				params.Settings,
-			),
-		)
+func newEvalTableService(params UploaderParams) (*ces.EvalTableService, error) {
+	rawURL := params.Settings.GetCESBaseURL()
+	if rawURL == "" {
+		return nil, errors.New("evaluations: no CES URL in settings")
+	}
+	cesBaseURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("evaluations: invalid CES URL: %v", err)
 	}
 
-	return u
+	return NewEvalTableService(
+		cesBaseURL,
+		NewCESHTTPClient(
+			cesBaseURL,
+			params.CredentialProvider,
+			params.Logger.Logger,
+			params.Settings,
+		),
+	), nil
 }
 
 // Upload creates an EvalTable in CES, adds its columns and rows,
@@ -92,7 +104,7 @@ func (u *Uploader) Upload(
 ) (*spb.LogEvalTableResponse, error) {
 	evalTables := u.evalTables
 	if evalTables == nil {
-		return nil, errors.New("evaluations: no CES URL in settings")
+		return nil, u.evalTablesErr
 	}
 
 	upserter, err := u.runHandle.Upserter()
