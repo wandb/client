@@ -162,14 +162,14 @@ def test_app_url_override():
 
 def test_ces_base_url_default():
     s = Settings(base_url="https://wandb.example.com")
-    assert s.x_ces_base_url == "https://wandb.example.com/evaluations"
+    assert s._ces_base_url == "https://wandb.example.com/evaluations"
 
 
 def test_ces_base_url_override_from_env():
     s = Settings(base_url="https://api.wandb.ai")
     s.update_from_env_vars({"CES_BASE_URL": "https://ces.example.com"})
-    assert s.x_ces_base_url == "https://ces.example.com"
-    assert s.to_proto().x_ces_base_url.value == "https://ces.example.com"
+    assert s._ces_base_url == "https://ces.example.com"
+    assert s.to_proto()._ces_base_url.value == "https://ces.example.com"
 
 
 def test_get_non_existent_attribute():

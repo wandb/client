@@ -617,7 +617,7 @@ class Settings(BaseModel, validate_assignment=True):
     x_ces_base_url_override: str | None = None
     """Override for the CoreWeave Evaluations service (CES) URL.
 
-    The `x_ces_base_url` is normally computed based on `base_url`, but this
+    The `_ces_base_url` is normally computed based on `base_url`, but this
     can be used to set it explicitly.
 
     CES_BASE_URL is the corresponding environment variable.
@@ -1648,6 +1648,12 @@ class Settings(BaseModel, validate_assignment=True):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def _ces_base_url(self) -> str:
+        """The URL for the CoreWeave Evaluations service (CES)."""
+        return self.x_ces_base_url_override or urls.api_to_ces_url(self.base_url)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def _code_path_local(self) -> str | None:
         """The relative path from the current working directory to the code path.
 
@@ -1884,15 +1890,6 @@ class Settings(BaseModel, validate_assignment=True):
     def timespec(self) -> str:
         """The time specification for the run."""
         return self._start_datetime
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def x_ces_base_url(self) -> str:
-        """The URL for the CoreWeave Evaluations service (CES).
-
-        <!-- lazydoc-ignore -->
-        """
-        return self.x_ces_base_url_override or urls.api_to_ces_url(self.base_url)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
