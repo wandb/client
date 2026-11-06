@@ -101,7 +101,7 @@ func (u *Uploader) Upload(
 		DatasetFields: ces.F(datasetFieldParams(request.GetDatasetFields())),
 		Scorers:       ces.F(scorerParams(request.GetScorers())),
 	}
-	if err := validateColumns(columns); err != nil {
+	if err := validateColumns(&columns); err != nil {
 		return nil, err
 	}
 
@@ -257,8 +257,9 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 }
 
 // validateColumns uses the CES SDK to check enum types
-func validateColumns(columns ces.EvalTableColumnNewParams) error {
-	for _, field := range columns.DatasetFields.Value {
+func validateColumns(columns *ces.EvalTableColumnNewParams) error {
+	for i := range columns.DatasetFields.Value {
+		field := &columns.DatasetFields.Value[i]
 		switch {
 		case !field.Source.Value.IsKnown():
 			return fmt.Errorf(
