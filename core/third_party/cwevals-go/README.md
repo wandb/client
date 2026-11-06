@@ -18,12 +18,12 @@ import (
 Or to pin the version:
 
 ```sh
-go get -u 'github.com/wandb/cwevals-go@v0.0.1'
+go get -u 'github.com/wandb/cwevals-go@v0.0.1-beta.3'
 ```
 
 ## Requirements
 
-This library requires Go 1.26.10+.
+This library requires Go 1.26+.
 
 ## Usage
 
