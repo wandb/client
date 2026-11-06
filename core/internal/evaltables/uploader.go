@@ -152,6 +152,9 @@ func (u *Uploader) Upload(
 		rowsDone += batch.rows
 		if totalRows > 0 {
 			progress.SetUnitsOfTotal(rowsDone, totalRows, "rows")
+		} else {
+			// A rows file's row count isn't known until it's read.
+			progress.SetUnitsDone(rowsDone, "rows")
 		}
 	}
 

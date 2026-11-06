@@ -322,6 +322,21 @@ func TestUpload_ReadsAndDeletesRowsFile(t *testing.T) {
 	assert.NoFileExists(t, path)
 }
 
+func TestUpload_ReportsRowsFileProgressWithoutTotal(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+	op := wboperation.NewOperations().New("uploading eval table t")
+
+	_, err := uploader.Upload(op.Context(context.Background()),
+		&spb.UploadEvalTableRequest{
+			Name:         "t",
+			RowsFilePath: writeRowsFile(t, `{"x":1}`, `{"x":2}`),
+		})
+
+	require.NoError(t, err)
+	assert.Equal(t, "2 rows", op.ToProto().GetProgress())
+}
+
 func TestUpload_DeletesRowsFileOnFailure(t *testing.T) {
 	ces := newFakeCES(t)
 	uploader, _ := newTestUploader(t, ces, `{"project": null}`)
