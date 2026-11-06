@@ -130,6 +130,9 @@ message Settings {
   // The URL for the W&B UI.
   google.protobuf.StringValue app_url = 202;
 
+  // The URL for the CoreWeave Evaluations service (CES).
+  google.protobuf.StringValue x_ces_base_url = 212;
+
   // The URL for the W&B backend.
   //
   // Used for GraphQL and "filestream" operations.
