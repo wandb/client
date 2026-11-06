@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/wandb/wandb/core/internal/api"
-	"github.com/wandb/wandb/core/internal/evaltables"
+	"github.com/wandb/wandb/core/internal/evaluations"
 	"github.com/wandb/wandb/core/internal/featurechecker"
 	fs "github.com/wandb/wandb/core/internal/filestream"
 	"github.com/wandb/wandb/core/internal/filestreamstats"
@@ -131,7 +131,7 @@ type Sender struct {
 	// evalTableUploader uploads EvalTables to CES.
 	//
 	// It is nil in offline mode.
-	evalTableUploader *evaltables.Uploader
+	evalTableUploader *evaluations.Uploader
 
 	// evalTableWG is a wait group for EvalTable upload goroutines.
 	evalTableWG sync.WaitGroup
@@ -277,7 +277,7 @@ func (f *SenderFactory) NewWithFileStream(
 	s.stepTracker = NewHistoryStepTracker(s.logger, s.runHandle)
 
 	if !s.settings.IsOffline() {
-		s.evalTableUploader = evaltables.NewUploader(evaltables.UploaderParams{
+		s.evalTableUploader = evaluations.NewUploader(evaluations.UploaderParams{
 			BaseURL:            f.BaseURL,
 			CredentialProvider: f.CredentialProvider,
 			GraphqlClient:      f.GraphqlClient,

@@ -1,4 +1,4 @@
-package evaltables_test
+package evaluations_test
 
 import (
 	"compress/gzip"
@@ -19,7 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/wandb/wandb/core/internal/api"
-	"github.com/wandb/wandb/core/internal/evaltables"
+	"github.com/wandb/wandb/core/internal/evaluations"
 	"github.com/wandb/wandb/core/internal/gqlmock"
 	"github.com/wandb/wandb/core/internal/observabilitytest"
 	"github.com/wandb/wandb/core/internal/runhandle"
@@ -98,7 +98,7 @@ func newTestUploader(
 	t *testing.T,
 	ces *fakeCES,
 	projectJSON string,
-) (*evaltables.Uploader, *gqlmock.MockClient) {
+) (*evaluations.Uploader, *gqlmock.MockClient) {
 	t.Helper()
 	t.Setenv("CES_BASE_URL", "")
 
@@ -108,7 +108,7 @@ func newTestUploader(
 	runHandle := runhandle.New()
 	require.NoError(t, runHandle.Init(runupsertertest.NewOfflineUpserter(t)))
 
-	return evaltables.NewUploader(evaltables.UploaderParams{
+	return evaluations.NewUploader(evaluations.UploaderParams{
 		BaseURL:            mustParseURL(t, ces.URL),
 		CredentialProvider: api.NewAPIKeyCredentialProvider("test-api-key"),
 		GraphqlClient:      mockGQL,

@@ -1,4 +1,4 @@
-package evaltables_test
+package evaluations_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/wandb/wandb/core/internal/api"
 	"github.com/wandb/wandb/core/internal/apitest"
-	"github.com/wandb/wandb/core/internal/evaltables"
+	"github.com/wandb/wandb/core/internal/evaluations"
 	"github.com/wandb/wandb/core/internal/observabilitytest"
 	"github.com/wandb/wandb/core/internal/settings"
 )
@@ -44,7 +44,7 @@ func TestCESBaseURL(t *testing.T) {
 		t.Run(tc.wandbBaseURL, func(t *testing.T) {
 			t.Setenv("CES_BASE_URL", "")
 
-			cesURL, err := evaltables.CESBaseURL(mustParseURL(t, tc.wandbBaseURL))
+			cesURL, err := evaluations.CESBaseURL(mustParseURL(t, tc.wandbBaseURL))
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, cesURL.String())
@@ -55,7 +55,7 @@ func TestCESBaseURL(t *testing.T) {
 func TestCESBaseURL_EnvironmentOverride(t *testing.T) {
 	t.Setenv("CES_BASE_URL", "https://ces.example.com")
 
-	cesURL, err := evaltables.CESBaseURL(mustParseURL(t, "https://api.wandb.ai"))
+	cesURL, err := evaluations.CESBaseURL(mustParseURL(t, "https://api.wandb.ai"))
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://ces.example.com", cesURL.String())
@@ -67,9 +67,9 @@ func TestEvalTableService_UsesRunCredentialsNotSDKEnvironment(t *testing.T) {
 	server := apitest.NewRecordingServer()
 	defer server.Close()
 	cesURL := mustParseURL(t, server.URL+"/evaluations")
-	service := evaltables.NewEvalTableService(
+	service := evaluations.NewEvalTableService(
 		cesURL,
-		evaltables.NewCESHTTPClient(
+		evaluations.NewCESHTTPClient(
 			cesURL,
 			api.NewAPIKeyCredentialProvider("run-api-key"),
 			observabilitytest.NewTestLogger(t).Logger,
