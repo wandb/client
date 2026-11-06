@@ -50,7 +50,7 @@ message RunMoment {
 //
 // Some fields such as `run_id` only make sense at the run level.
 //
-// Next ID: 210
+// Next ID: 213
 message Settings {
   reserved 3, 6, 8, 9, 12, 19, 36, 43, 44, 45, 50, 51, 54, 70, 91, 94, 100, 124, 136, 137, 173, 176, 180, 190;
 
@@ -129,9 +129,6 @@ message Settings {
 
   // The URL for the W&B UI.
   google.protobuf.StringValue app_url = 202;
-
-  // The URL for the CoreWeave Evaluations service (CES).
-  google.protobuf.StringValue x_ces_base_url = 212;
 
   // The URL for the W&B backend.
   //
@@ -468,6 +465,8 @@ message Settings {
   google.protobuf.StringValue x_stats_coreweave_metadata_endpoint = 193;
 
   google.protobuf.BoolValue _aws_lambda = 2;
+  // The URL for the CoreWeave Evaluations service (CES).
+  google.protobuf.StringValue _ces_base_url = 212;
   google.protobuf.BoolValue x_cli_only_mode = 4;
   google.protobuf.BoolValue _colab = 5;
   google.protobuf.BoolValue x_disable_viewer = 11;
