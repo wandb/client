@@ -141,18 +141,12 @@ func TestUpload(t *testing.T) {
 		Name: "my-table",
 		DatasetFields: []*spb.EvalTableField{
 			{Source: "input", Name: "prompt", ValueType: "string"},
-			{
-				Source:                 "output",
-				Name:                   "image",
-				ValueType:              "json",
-				ExtensionType:          "wandb.image",
-				ExtensionSchemaVersion: 1,
-			},
+			{Source: "output", Name: "answer", ValueType: "string"},
 		},
 		Scorers: []*spb.EvalTableScorer{{Name: "accuracy", ValueType: "number"}},
 		RowsJson: []string{
-			`{"input":{"prompt":"a"},"output":{},"scores":{"accuracy":1}}`,
-			`{"input":{"prompt":"b"},"output":{},"scores":{"accuracy":0}}`,
+			`{"input":{"prompt":"a"},"output":{"answer":"x"},"scores":{"accuracy":1}}`,
+			`{"input":{"prompt":"b"},"output":{"answer":"y"},"scores":{"accuracy":0}}`,
 		},
 	})
 
@@ -175,22 +169,47 @@ func TestUpload(t *testing.T) {
 	assert.JSONEq(t, `{
 		"dataset_fields": [
 			{"source": "input", "name": "prompt", "value_type": "string"},
-			{
-				"source": "output",
-				"name": "image",
-				"value_type": "json",
-				"extension_type": "wandb.image",
-				"extension_schema_version": 1
-			}
+			{"source": "output", "name": "answer", "value_type": "string"}
 		],
 		"scorers": [{"name": "accuracy", "value_type": "number"}]
 	}`, requests[1].Body)
 	assert.Equal(t, tablePath+"/eval-id/rows", requests[2].Path)
 	assert.JSONEq(t, `{"rows": [
-		{"input": {"prompt": "a"}, "output": {}, "scores": {"accuracy": 1}},
-		{"input": {"prompt": "b"}, "output": {}, "scores": {"accuracy": 0}}
+		{"input": {"prompt": "a"}, "output": {"answer": "x"}, "scores": {"accuracy": 1}},
+		{"input": {"prompt": "b"}, "output": {"answer": "y"}, "scores": {"accuracy": 0}}
 	]}`, requests[2].Body)
 	assert.Equal(t, tablePath+"/eval-id/versions", requests[3].Path)
+}
+
+func TestUpload_DeclaresExtensionColumns(t *testing.T) {
+	ces := newFakeCES(t)
+	uploader, _ := newTestUploader(t, ces, projectFoundJSON)
+
+	_, err := uploader.Upload(context.Background(), &spb.UploadEvalTableRequest{
+		Name: "my-table",
+		DatasetFields: []*spb.EvalTableField{{
+			Source:                 "output",
+			Name:                   "image",
+			ValueType:              "json",
+			ExtensionType:          "wandb-image",
+			ExtensionSchemaVersion: 1,
+		}},
+	})
+
+	require.NoError(t, err)
+	requests := ces.Requests()
+	require.Len(t, requests, 3) // No rows request for an empty table.
+	assert.Equal(t, tablePath+"/eval-id/columns", requests[1].Path)
+	assert.JSONEq(t, `{
+		"dataset_fields": [{
+			"source": "output",
+			"name": "image",
+			"value_type": "json",
+			"extension_type": "wandb-image",
+			"extension_schema_version": 1
+		}],
+		"scorers": []
+	}`, requests[1].Body)
 }
 
 func TestUpload_IdempotencyKeys(t *testing.T) {
