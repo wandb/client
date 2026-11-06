@@ -23,6 +23,9 @@ import (
 )
 
 const (
+	// maxRequestBodyBytes is CES's request body limit.
+	maxRequestBodyBytes = 16 << 20
+
 	// targetRowBatchBytes is the size above which a row append request body
 	// is split, so we leave headroom below CES's 16 MiB request limit.
 	targetRowBatchBytes = 8 << 20
@@ -78,6 +81,14 @@ func (u *Uploader) Upload(
 		return nil, u.evalTablesErr
 	}
 
+	columns := ces.EvalTableColumnNewParams{
+		DatasetFields: ces.F(datasetFieldParams(request.GetDatasetFields())),
+		Scorers:       ces.F(scorerParams(request.GetScorers())),
+	}
+	if err := validateColumns(columns); err != nil {
+		return nil, err
+	}
+
 	upserter, err := u.runHandle.Upserter()
 	if err != nil {
 		return nil, fmt.Errorf("evaltables: %v", err)
@@ -89,6 +100,7 @@ func (u *Uploader) Upload(
 		return nil, err
 	}
 	scope := ces.F(scopeID)
+	columns.ScopeID = scope
 	keys := newIdempotencyKeys()
 
 	created, err := evalTables.New(
@@ -103,11 +115,7 @@ func (u *Uploader) Upload(
 	_, err = evalTables.Columns.New(
 		ctx,
 		created.EvaluationID,
-		ces.EvalTableColumnNewParams{
-			ScopeID:       scope,
-			DatasetFields: ces.F(datasetFieldParams(request.GetDatasetFields())),
-			Scorers:       ces.F(scorerParams(request.GetScorers())),
-		},
+		columns,
 		keys.option("columns"),
 	)
 	if err != nil {
@@ -234,6 +242,50 @@ func scorerParams(scorers []*spb.EvalTableScorer) []ces.EvalTableColumnNewParams
 	}
 
 	return params
+}
+
+// validateColumns rejects a columns request that CES would, before the
+// EvalTable is created.
+//
+// The CES SDK's types define the valid values, so updating the CES SDK
+// updates the check.
+func validateColumns(columns ces.EvalTableColumnNewParams) error {
+	for _, field := range columns.DatasetFields.Value {
+		switch {
+		case !field.Source.Value.IsKnown():
+			return fmt.Errorf(
+				"evaltables: field %q has unknown source %q",
+				field.Name.Value, field.Source.Value)
+		case !field.ValueType.Value.IsKnown():
+			return fmt.Errorf(
+				"evaltables: field %q has unknown value type %q",
+				field.Name.Value, field.ValueType.Value)
+		case field.ExtensionType.Present && !field.ExtensionType.Value.IsKnown():
+			return fmt.Errorf(
+				"evaltables: field %q has unknown extension type %q",
+				field.Name.Value, field.ExtensionType.Value)
+		}
+	}
+
+	for _, scorer := range columns.Scorers.Value {
+		if !scorer.ValueType.Value.IsKnown() {
+			return fmt.Errorf(
+				"evaltables: scorer %q has unknown value type %q",
+				scorer.Name.Value, scorer.ValueType.Value)
+		}
+	}
+
+	body, err := columns.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("evaltables: failed to encode columns: %v", err)
+	}
+	if len(body) >= maxRequestBodyBytes {
+		return fmt.Errorf(
+			"evaltables: columns request is %d bytes, must be under %d",
+			len(body), maxRequestBodyBytes)
+	}
+
+	return nil
 }
 
 type rowBatch struct {
