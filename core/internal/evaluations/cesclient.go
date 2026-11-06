@@ -42,8 +42,12 @@ func NewCESHTTPClient(
 // NewEvalTableService returns a CES EvalTable client that authenticates and
 // retries with httpClient instead of the SDK's environment credentials and
 // retries.
-func NewEvalTableService(httpClient api.HTTPDoer) *ces.EvalTableService {
+func NewEvalTableService(
+	cesBaseURL string,
+	httpClient api.HTTPDoer,
+) *ces.EvalTableService {
 	return ces.NewClient(
+		option.WithBaseURL(cesBaseURL),
 		option.WithHTTPClient(httpClient),
 		option.WithMaxRetries(0),
 	).EvalTables
