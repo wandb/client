@@ -16,12 +16,8 @@ import (
 	"github.com/wandb/wandb/core/internal/settings"
 )
 
-// NewEvalTableService returns a client for the EvalTables API at the
-// settings' CES URL.
-//
-// It authenticates with credentialProvider instead of the CES SDK's
-// environment variables, and retries with wandb-core's HTTP client instead
-// of the CES SDK's.
+// NewEvalTableService returns a CoreWeave Evaluation Service API using
+// our credential provider and HTTP Client instead of the CES SDK defaults.
 func NewEvalTableService(
 	credentialProvider api.CredentialProvider,
 	logger *slog.Logger,
@@ -38,7 +34,7 @@ func NewEvalTableService(
 			newCESHTTPClient(cesBaseURL, credentialProvider, logger, s)),
 		option.WithMaxRetries(0),
 		// Drop the CES SDK's environment credentials; the HTTP client adds
-		// the run's, but only for requests to the CES URL.
+		// our credentials from the run, limited to CES URL requests.
 		option.WithHeaderDel("Authorization"),
 	).EvalTables, nil
 }
