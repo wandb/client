@@ -23,7 +23,7 @@ CES_HOSTS = {
     "api.wandb.ai": "evaluations.wandb.ai",
     "api.qa.wandb.ai": "evaluations.qa.wandb.ai",
 }
-"""Maps each W&B API host to the separate host serving its Evaluations service."""
+"""Maps each W&B API host to the CoreWeave Evaluation Service instance linked to it."""
 
 _URL_VALIDATOR = SchemaValidator(
     core_schema.url_schema(
