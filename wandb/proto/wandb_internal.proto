@@ -1304,8 +1304,9 @@ message UploadEvalTableRequest {
   // The table's rows in order, each a JSON object of the form
   // {"input": {...} | null, "output": {...} | null, "scores": {...}}.
   //
-  // Values already normalized for CES: media cells hold CES extension
-  // values, and every value matches its column's declared type.
+  // Values already normalized for CES: every value matches its column's
+  // declared type, except that media cells hold W&B media JSON with a `path`
+  // in the run's files directory or an `artifact_path`.
   repeated string rows_json = 4;
 
   _RequestInfo _info = 200;
@@ -1321,11 +1322,10 @@ message EvalTableField {
   // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsValueType
   string value_type = 3;
 
-  // The CES extension type of a media column, like "wandb-image", and its
-  // schema version. Both are unset for other columns.
-  // One of: cwevals.EvalTableColumnNewParamsDatasetFieldsExtensionType
-  string extension_type = 4;
-  int32 extension_schema_version = 5;
+  // The `_type` of a media column's W&B media, like "image-file", or unset
+  // for other columns. wandb-core converts the column's values to CES
+  // extension values.
+  string wandb_media_type = 4;
 }
 
 message EvalTableScorer {
