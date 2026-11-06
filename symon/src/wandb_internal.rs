@@ -2700,8 +2700,17 @@ pub struct UploadEvalTableRequest {
     /// Values already normalized for CES: every value matches its column's
     /// declared type, except that media cells hold W&B media JSON with a `path`
     /// in the run's files directory or an `artifact_path`.
+    ///
+    /// Only one of {rows_json, rows_file_path} should be set.
     #[prost(string, repeated, tag = "4")]
     pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// A gzipped file of the table's rows, one JSON object per line in the
+    /// same form as rows_json.
+    ///
+    /// It is used for tables too large to send inline. wandb-core deletes the
+    /// file after reading it, whether or not the upload succeeds.
+    #[prost(string, tag = "5")]
+    pub rows_file_path: ::prost::alloc::string::String,
     /// Run files referenced by the table's media cells, relative to the run's
     /// files directory, for wandb-core to upload.
     #[prost(string, repeated, tag = "6")]

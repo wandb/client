@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
 
 	ces "github.com/wandb/cwevals-go"
@@ -63,21 +64,34 @@ func newMediaConverter(
 }
 
 // convertRows returns the JSON rows with their media converted.
-func (c *mediaConverter) convertRows(rowsJSON []string) ([]string, error) {
+//
+// It stops after the first error.
+func (c *mediaConverter) convertRows(
+	rows iter.Seq2[[]byte, error],
+) iter.Seq2[[]byte, error] {
 	if len(c.mediaTypes) == 0 {
-		return rowsJSON, nil
+		return rows
 	}
 
-	converted := make([]string, len(rowsJSON))
-	for i, row := range rowsJSON {
-		convertedRow, err := c.convertRow([]byte(row))
-		if err != nil {
-			return nil, fmt.Errorf("%v (row %d)", err, i)
+	return func(yield func([]byte, error) bool) {
+		i := 0
+		for row, err := range rows {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			converted, err := c.convertRow(row)
+			if err != nil {
+				yield(nil, fmt.Errorf("%v (row %d)", err, i))
+				return
+			}
+			if !yield(converted, nil) {
+				return
+			}
+			i++
 		}
-		converted[i] = string(convertedRow)
 	}
-
-	return converted, nil
 }
 
 // convertRow returns the JSON row with its media converted.
