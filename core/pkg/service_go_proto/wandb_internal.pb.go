@@ -9751,22 +9751,15 @@ type LogEvalTableRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The EvalTable's name.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// The history key and step at which the table is logged.
-	//
-	// They identify the logging location in CES idempotency keys, so that
-	// retrying a log at the same location reuses the same CES resources.
-	// CES does not store them.
-	HistoryKey string `protobuf:"bytes,2,opt,name=history_key,json=historyKey,proto3" json:"history_key,omitempty"`
-	Step       string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`
 	// Dataset fields and scorers in the order CES should declare them.
-	DatasetFields []*EvalTableField  `protobuf:"bytes,4,rep,name=dataset_fields,json=datasetFields,proto3" json:"dataset_fields,omitempty"`
-	Scorers       []*EvalTableScorer `protobuf:"bytes,5,rep,name=scorers,proto3" json:"scorers,omitempty"`
+	DatasetFields []*EvalTableField  `protobuf:"bytes,2,rep,name=dataset_fields,json=datasetFields,proto3" json:"dataset_fields,omitempty"`
+	Scorers       []*EvalTableScorer `protobuf:"bytes,3,rep,name=scorers,proto3" json:"scorers,omitempty"`
 	// The table's rows in order, each a JSON object of the form
 	// {"input": {...}, "output": {...} | null, "scores": {...}}.
 	//
 	// Values are already normalized for CES: media cells hold CES extension
 	// values, and every value matches its column's declared type.
-	RowsJson      []string      `protobuf:"bytes,6,rep,name=rows_json,json=rowsJson,proto3" json:"rows_json,omitempty"`
+	RowsJson      []string      `protobuf:"bytes,4,rep,name=rows_json,json=rowsJson,proto3" json:"rows_json,omitempty"`
 	XInfo         *XRequestInfo `protobuf:"bytes,200,opt,name=_info,json=Info,proto3" json:"_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -9805,20 +9798,6 @@ func (*LogEvalTableRequest) Descriptor() ([]byte, []int) {
 func (x *LogEvalTableRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *LogEvalTableRequest) GetHistoryKey() string {
-	if x != nil {
-		return x.HistoryKey
-	}
-	return ""
-}
-
-func (x *LogEvalTableRequest) GetStep() string {
-	if x != nil {
-		return x.Step
 	}
 	return ""
 }
@@ -13078,15 +13057,12 @@ const file_wandb_proto_wandb_internal_proto_rawDesc = "" +
 	"\x13LogArtifactResponse\x12\x1f\n" +
 	"\vartifact_id\x18\x01 \x01(\tR\n" +
 	"artifactId\x12#\n" +
-	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xb1\x02\n" +
+	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\"\xfc\x01\n" +
 	"\x13LogEvalTableRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
-	"\vhistory_key\x18\x02 \x01(\tR\n" +
-	"historyKey\x12\x12\n" +
-	"\x04step\x18\x03 \x01(\tR\x04step\x12E\n" +
-	"\x0edataset_fields\x18\x04 \x03(\v2\x1e.wandb_internal.EvalTableFieldR\rdatasetFields\x129\n" +
-	"\ascorers\x18\x05 \x03(\v2\x1f.wandb_internal.EvalTableScorerR\ascorers\x12\x1b\n" +
-	"\trows_json\x18\x06 \x03(\tR\browsJson\x122\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12E\n" +
+	"\x0edataset_fields\x18\x02 \x03(\v2\x1e.wandb_internal.EvalTableFieldR\rdatasetFields\x129\n" +
+	"\ascorers\x18\x03 \x03(\v2\x1f.wandb_internal.EvalTableScorerR\ascorers\x12\x1b\n" +
+	"\trows_json\x18\x04 \x03(\tR\browsJson\x122\n" +
 	"\x05_info\x18\xc8\x01 \x01(\v2\x1c.wandb_internal._RequestInfoR\x04Info\"\xbc\x01\n" +
 	"\x0eEvalTableField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +

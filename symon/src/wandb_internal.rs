@@ -2540,26 +2540,17 @@ pub struct LogEvalTableRequest {
     /// The EvalTable's name.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    /// The history key and step at which the table is logged.
-    ///
-    /// They identify the logging location in CES idempotency keys, so that
-    /// retrying a log at the same location reuses the same CES resources.
-    /// CES does not store them.
-    #[prost(string, tag = "2")]
-    pub history_key: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub step: ::prost::alloc::string::String,
     /// Dataset fields and scorers in the order CES should declare them.
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag = "2")]
     pub dataset_fields: ::prost::alloc::vec::Vec<EvalTableField>,
-    #[prost(message, repeated, tag = "5")]
+    #[prost(message, repeated, tag = "3")]
     pub scorers: ::prost::alloc::vec::Vec<EvalTableScorer>,
     /// The table's rows in order, each a JSON object of the form
     /// {"input": {...}, "output": {...} | null, "scores": {...}}.
     ///
     /// Values are already normalized for CES: media cells hold CES extension
     /// values, and every value matches its column's declared type.
-    #[prost(string, repeated, tag = "6")]
+    #[prost(string, repeated, tag = "4")]
     pub rows_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "200")]
     pub info: ::core::option::Option<RequestInfo>,
