@@ -2470,8 +2470,16 @@ class Api:
             status = _api_error_status(e)
             if status == HTTPStatus.CONFLICT.value:
                 if fetch_existing:
+                    from wandb.apis.public.automations import _fetch_existing_automation
+
                     wandb.termlog(f"Automation {name!r} exists. Fetching it instead.")
-                    return self.automation(name=name)
+                    event_obj = kwargs.get("event") or obj.event
+                    assert (
+                        event_obj is not None
+                    )  # Already validated by prepare_to_create.
+                    return _fetch_existing_automation(
+                        self._service_api, event_obj.scope, name
+                    )
 
                 raise ValueError(
                     f"Automation {name!r} exists. Unable to create another with the same name."

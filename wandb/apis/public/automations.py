@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from typing_extensions import override
 
 import wandb
+from wandb._iterutils import one
 from wandb._pydantic import GQLResult
 from wandb.apis.paginator import RelayPaginator
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from wandb._pydantic import Connection
     from wandb.apis.public.service_api import ServiceApi
     from wandb.automations import Automation
+    from wandb.automations.scopes import AutomationScope
 
 logger = logging.getLogger(__name__)
 
@@ -266,3 +268,79 @@ class EntityAutomations(
 
 
 Automations: TypeAlias = LegacyAutomations  # For now
+
+
+def _matches_scope(node: _RawTrigger, scope: AutomationScope, name: str) -> bool:
+    return (
+        node.get("name") == name
+        and node.get("scope", {}).get("id") == scope.id
+        and node.get("scope", {}).get("__typename") == scope.typename__
+    )
+
+
+class _ScopedEntityAutomations(EntityAutomations):
+    """Filter the exact scope before parsing any same-name descendants."""
+
+    def __init__(self, service_api: ServiceApi, scope: AutomationScope, name: str):
+        self._scope = scope
+        self._name = name
+        super().__init__(service_api, entity=scope.name, filter={"name": name})
+
+    @override
+    def _convert(self, node: _RawTrigger) -> Automation | None:
+        if not _matches_scope(node, self._scope, self._name):
+            return None
+        return super()._convert(node)
+
+
+def _fetch_existing_automation(
+    service_api: ServiceApi, scope: AutomationScope, name: str
+) -> Automation:
+    """Find a conflicting rule inside its original scope, including on old servers.
+
+    Project triggers include collection descendants. Filter raw nodes first so
+    an unrelated rule's unknown event/action cannot break recovery.
+    """
+    from wandb.automations._compat import omit_automation_fragments
+    from wandb.automations._generated import (
+        GET_COLLECTION_AUTOMATIONS_GQL,
+        GET_PROJECT_AUTOMATIONS_GQL,
+    )
+    from wandb.automations.scopes import ScopeType
+
+    if scope.scope_type == ScopeType.ENTITY:
+        matches = iter(_ScopedEntityAutomations(service_api, scope, name))
+    else:
+        query = (
+            GET_PROJECT_AUTOMATIONS_GQL
+            if scope.scope_type == ScopeType.PROJECT
+            else GET_COLLECTION_AUTOMATIONS_GQL
+        )
+        data = service_api.execute_graphql(
+            query,
+            variables={"scopeID": scope.id},
+            omit_fragments=omit_automation_fragments(service_api),
+        )
+        try:
+            nodes = (
+                [t for edge in data["scope"]["edges"] for t in edge["node"]["triggers"]]
+                if scope.scope_type == ScopeType.PROJECT
+                else data["scope"]["project"]["triggers"]
+            )
+        except (LookupError, TypeError) as e:
+            raise ValueError(
+                "Unexpected response while fetching existing automation"
+            ) from e
+        matches = (
+            _parse_automation(node, skip=False)
+            for node in nodes
+            if _matches_scope(node, scope, name)
+        )
+
+    result = one(
+        matches,
+        too_short=ValueError("No automations found in the requested scope"),
+        too_long=ValueError("Multiple automations found in the requested scope"),
+    )
+    assert result is not None  # Matching nodes are parsed with skip=False.
+    return result
